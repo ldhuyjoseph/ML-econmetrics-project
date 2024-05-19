@@ -1,0 +1,467 @@
+---
+title: "Exercise 4: The effect of 401(k) Eligibility and Participation on Net Financial Assets"
+output: pdf_document
+date: "April 2024"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+For this exercise we'll follow the paper [Do 401(K) Contributions Crowd Out Other Personal Saving?](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=480220) by Poterba et al. The 401(k) is a retirement saving program that became important in the United States in the '1980. 401(k) are available only to employees of firms that offer such plans. Deposits in 401(k) accounts are tax-deductible and the return on the contributions accrues tax free. The aim of this study is to investigate the effect of 401(k) participation on net financial assets. A central policy issue in evaluating retirement saving programs is whether contributions represent net new saving, or whether they are simply a relabeling of saving that would have been done otherwise.
+
+<!-- https://www.kaggle.com/code/sarahgaogao/pm5-401k-c4be35/notebook -->
+
+## Exploratory data analysis
+
+We will focus on a set of controllers in our analysis, namely: age, income, education, family size, whether the individual is married, owns a house, whether there are two earners in the household and defined benefit pension. First, load the packages and the data.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+# Helper packages
+library(dplyr)       # for data wrangling
+library(ggplot2)     # for plotting
+library(stargazer) #  for producing nice regression tables
+library(fBasics)
+library(tidyr)
+
+# Modeling packages
+library(hdm)
+library(glmnet)
+library(DoubleML)
+library(mlr3) # package for the learners in DML
+library(mlr3learners) # extended functionalities of mlr3
+library(ivreg)
+library(hdm)
+library(causalTree)
+
+# load the data
+data(pension)
+data <- pension
+```
+
+Provide first some summary statistics. Note that is *e401* is an indicator variable equal to 1 if the individual works at a firm that offers a 401(k) pension plan, while *p401* is an indicator equal to 1 if the individual participates to the 401(k) pension plan. What are the average characteristics of individuals by participation in the sample? 
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+# use dplyr
+data %>% group_by(p401) %>% summarise(mean(inc),
+                                      mean(age),
+                                      mean(fsize),
+                                      mean(marr),
+                                      mean(twoearn),
+                                      mean(db),
+                                      mean(hown),
+                                      mean(net_tfa))
+
+```
+What is the average participation and average characteristics for individuals that are eligible vs individuals that are not eligible?
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+data %>% group_by(e401) %>% summarise(
+                                      mean(p401),
+                                      mean(inc),
+                                      mean(age),
+                                      mean(fsize),
+                                      mean(marr),
+                                      mean(twoearn),
+                                      mean(db),
+                                      mean(net_tfa))
+
+```
+
+## Statistical modelling
+
+Our research question is: What is the impact of *p401* on net financial assets? We face two problems here:
+
+1. *Endogeneity*: A first problem with this analysis is that *p401* is likely to be an endogenous variable. It seems likely that those individuals with higher (unobserved) preference for saving would be most likely to choose to participate in tax-advantaged retirement savings plans and would tend to have otherwise high amounts of accumulated assets. The presence of unobserved savings preferences implies that conventional estimates that do not account for endogeneity of participation will be biased upward, tending to overstate the savings effects of 401(k) participation. Can *e401* be taken as an instrument for participation?  The basic idea of the authors is that, at least around the time 401(k) initially became available, people were unlikely to be basing their employment decisions on whether an employer offered a 401(k) but would instead focus on income and other aspects of the job. 
+Following this argument, whether one is *eligible* for a 401(k) may then be taken as exogenous after conditioning on income and other control variables related to job choice. Note that controlling for exogenous characteristics is important due to 401(k) offered by firms employing mostly workers from middle and above middle class. 
+
+2. *Saver heterogeneity*: The effect of the treatment may vary with covariates. In fact, it is likely that some individuals have a higher preference for saving than others. Those individuals with the highest unobserved preference for saving would be most likely to choose to participate in the program.
+
+To solve the first problem, we could use an instrumental variable approach where eligibility (*e401*) is taken as instrument. Check first if *e401* is a good instrument for *p401*, using OLS regression.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+options(scipen = 999)
+# this makes default a good instrument for the variable pre_takeup_rate!
+m <- (lm(p401 ~  e401 + inc + age + fsize + marr + twoearn + db + hown, data=data))
+summary(m)
+```
+
+Now estimate the effect of *p401* on net total financial assets using OLS regression
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+m0 <- lm(net_tfa ~  p401 + inc + age + fsize + marr + twoearn + db + hown, data=data)
+stargazer(m0, type = "text")
+```
+
+Compare the above OLS results with IV regression, where *e401* is taken as instrument. What do you observe?
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+m1 <- ivreg(net_tfa ~  p401 + inc + age + fsize + marr + twoearn + db + hown | e401 + inc + age + fsize + marr + twoearn + db + hown, data=data)
+summary(m1)
+```
+
+We now investigate whether the use of *meta-learners* can help us to solve the second problem. We are interested in finding treatment effect heterogeneity, that is, identifying how units respond differently to the treatment. Under this framework, we want to estimate:
+
+$$\tau(X)=E(y_{1i}|X)-E(y_{0i}|X)$$
+
+In other words, we want to know how sensitive units are to the treatment. 
+
+First, estimate the effect of *p401* on net financial assets using the S-learner, where a tree is taken as meta-learner.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+## S learner
+tf0 <- rpart(net_tfa ~  p401 + inc + age + fsize + marr + twoearn + db + hown, data=data)
+X1<-data
+X1$p401 <- 1 # create fictional data where all individuals have p401 = 1
+X0<-data
+X0$p401 <- 0 # create fictional data where all individuals have p401 = 0
+  
+data$CATE_SL <- predict(tf0, X1) -  predict(tf0, X0)
+summary(data$CATE_SL)
+```
+
+What do you notice? If the treatment is very weak in explaining the outcome variable, relative to the impact other covariates, the S-learner may discard the treatment variable completely. Notice that this is highly related to the chosen ML model you employ. The greater the regularization, the greater the problem. 
+
+Note that we could improve the above tree, by growing a larger tree and then pruning. Try first with $cp=0$. Do you get a non-zero CATE? Then prune the tree and calculate the CATE again.
+
+```{r}
+tf0 <- rpart(net_tfa ~  p401 + inc + age + fsize + marr + twoearn + db + hown,  cp=0,  data=data)
+data$CATE_SL_full <- predict(tf0, X1) -  predict(tf0, X0)
+summary(data$CATE_SL_full)
+
+cpt <- tf0$cptable
+cpt <- as.data.frame(cpt)
+cp.min <- which.min(cpt$xerror) # find minimum error
+cp.idx <- which(cpt$xerror- cpt$xerror[cp.min] < cpt$xstd)[1]  # at most one std. error from minimum error
+cp.best <-cpt$CP[cp.idx]
+cp.best
+
+pruned.tf0 <- prune(tf0, cp=cp.best)
+
+data$CATE_SL <- predict(pruned.tf0, X1) -  predict(pruned.tf0, X0)
+summary(data$CATE_SL)
+```
+
+
+One attempt to fix this problem is using the T-learner. The T-learner tries to solve the problem of discarding the treatment entirely by forcing the learner to first split on it. Instead of using a single model, we will use one model per treatment level. Estimate the average treatment effect using the T-learner with a tree learner.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Two learner
+# learner 1:
+tf1 <- rpart(net_tfa ~   inc + age + fsize + marr + twoearn + db + hown, data=data[data$p401==1,])
+
+# learner 2:
+tf0 <- rpart(net_tfa ~   inc + age + fsize + marr + twoearn + db + hown, data=data[data$p401==0,])
+
+data$CATE_2L <- predict(tf1, X1) -  predict(tf0, X0)
+summary(data$CATE_2L)
+```
+
+
+The T-Learner avoids the problem of not picking up on a weak treatment variable, but it can still suffer from regularization bias. To solve this problem, we can use an X-learner, proposed by Kunzela et al. The X-Learner has two stages and a propensity score model. The first stage is identical to the T-learner, so we will use the output above. 
+
+For the second stage, we impute the treatment effect for the control and for the treated using the models above:
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Compute the 'imputed treatment effects' using the other group
+covariate_names <- c( "inc" , "age", "fsize", "marr", "twoearn", "db", "hown")
+X <- data[,covariate_names]
+D <- data$p401
+Y <- c(data$net_tfa)
+
+D1hat <- Y[D==1] - predict(tf0, X[D==1,])  # tau is estimated using the treatment group outcomes and the imputed counterfactual that we get from tf0
+D0hat <- predict(tf1, X[D==0,]) - Y[D==0]  # tau is estimated using the control group outcomes and the imputed counterfactual that we get from tf1
+```
+
+Then, we fit two more models to predict those effects
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Compute the cross estimators 
+xf1 <- rpart(D1hat ~   inc + age + fsize + marr + twoearn + db + hown, data=data[data$p401==1,])
+xf0 <- rpart(D0hat ~   inc + age + fsize + marr + twoearn + db + hown, data=data[data$p401==0,])
+
+# Predict treatment effects using *all data*:
+xf.preds.0 <-  predict(xf0, data)
+xf.preds.1 <- predict(xf1, data)
+```
+
+We have one model that is wrong because we've impute the treatment effects wrongly and another model that is correct because we’ve imputed those values correctly. Now, we need a way to combine the two in a way that gives more weight to the correct model. Here is where the propensity score model comes to play. Let *ehat* be the propensity score model, we can combine the two second stage models as follows:
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Estimate the propensity score
+propf <- rpart(p401 ~ inc + age + fsize + marr + twoearn + db + hown, data=data)
+ehat <- predict(propf)
+
+# Finally, compute the X-learner prediction # If there are very few treated units, ehat is very small and this will give a very small weight to the wrong model
+data$CATE_X <- (1 - ehat) * xf.preds.1 + ehat * xf.preds.0
+summary(data$CATE_X)
+```
+
+Now estimate the model using causal trees. Use the *causalTree* function from the *causalTree* package. Note that the *causalTree* function offers 4 different rules for splitting: the transformed outcome tree criterion (TOT), the causal tree criterion (CT), the fit based tree criterion (fit), the squared t-statistic tree criterion (tstat). In this tutorial we only use the CT criterion.
+
+First, note that causal estimation requires splitting the sample into two folds. Here we choose 50 per cent in *fold1* and 50 per cent in *fold2*
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Set a seed for reproducibility
+set.seed(123)
+# Split the data into training and testing sets
+n <- nrow(data)
+split <- sample(1:n, floor(n/2))
+fold1 <- data[split, ]
+fold2 <- data[-split, ]
+
+```
+
+Now, apply the *honest.causalTree* function. Note that you can modify the parameters *bucketMax*, *bucketNum* and *minsize* to obtain fewer or more splits. The number of buckets is determined by $min(bucketMax, max(n_{min}/bucketNum, minsize))$ observations, where $n_{min}$ is the minimum of the number of treated observations and the number of control observations in the leaf to be split. Try with *bucketNum = 5*, *bucketMax = 100*, and *minsize = 250*.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+set.seed(123)
+causal_tree <- honest.causalTree(net_tfa ~ inc + age + fsize + marr + twoearn + db + hown, # formula
+                          data = fold1,  # data for splitting
+                          treatment = fold1$p401, # treatment variable
+                          est_data = fold2,   # data for computing CATE
+                          est_treatment = fold2$p401, # treatment variable
+                          split.Rule = "CT",  # splitting rule: Causal Tree
+                          split.Honest = TRUE,  # we assume honest splitting      
+                          cv.option = "CT",  # 
+                          bucketNum = 5, 
+                          bucketMax = 100, 
+                          minsize = 250)
+
+```
+
+Like any other tree, you can plot the learned tree. However, note that the values in the cell are the estimated treatment effect.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+rpart.plot(causal_tree) # note the rounding...
+```
+
+Now we can calculate predicted ATE on the estimation sample. Interestingly, to estimate the standard errors on the leaves, we can use an OLS. The linear regression is specified such that the coefficients on the leaves are the treatment effects.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+fold2$leaf <- as.factor(predict(causal_tree,
+                                     newdata = fold2,
+                                     type = "vector"))
+
+# Predict point estimates (on estimation sample)
+fold2$CATE_CT <- predict(causal_tree, newdata=fold2)
+# Create a factor column 'leaf' indicating leaf assignment in the estimation set
+num.leaves <- length(unique(fold2$CATE_CT))
+fold2$leaf <- factor(fold2$CATE_CT, levels=sort(unique(fold2$CATE_CT)), labels = seq(num.leaves))
+
+honest_ols <- lm( net_tfa ~ leaf + p401 * leaf - p401 -1, data =  fold2)
+summary(honest_ols)
+
+```
+
+It is often interesting to explore the characteristics of individuals belonging to different CATE groups
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+fold2 %>% group_by(leaf) %>% summarise(mean(inc),
+                                       mean(age),
+                                       mean(fsize),
+                                       mean(marr),
+                                       mean(twoearn),
+                                       mean(db),
+                                       mean(hown),
+                                       mean(CATE_CT))
+```
+
+Like in regression trees, it is possible to modify the complexity parameter, *cp*. For example, if you estimate a honest causal tree setting *cp* to zero, you get a very large tree. To try this, however, do not set the parameters *bucketMax*, *bucketNum* and *minsize*..
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+set.seed(123)
+# Building causal tree
+
+causal_tree <- honest.causalTree(net_tfa ~ inc + age + fsize + marr + twoearn + db + hown, # formula
+                          data = fold1,  # data for splitting
+                          treatment = fold1$p401, # treatment variable
+                          est_data = fold2,   # data for computing CATE
+                          est_treatment = fold2$p401, # treatment variable
+                          split.Rule = "CT",  # splitting rule: Causal Tree
+                          split.Honest = TRUE,  # we assume honest splitting      
+                          cv.option = "CT",  # 
+                          cp=0)
+
+rpart.plot(causal_tree)
+```
+
+You can obtain the table of CV errors by tuning parameter like in regression trees. And you can prune the tree using cross validation, that is, we choose the simplest tree that minimises the objective function in the CV sample.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+options(scipen = 9999)
+# Table of cross-validated values by tuning parameter.
+ct.cptable <- as.data.frame(causal_tree$cptable)
+cp.min <- which.min(ct.cptable$xerror) # find minimum error
+cp.idx <- which(ct.cptable$xerror- ct.cptable$xerror[cp.min] < ct.cptable$xstd)[1]  # at most one std. error from minimum error
+cp.optimal<- ct.cptable$CP[cp.idx]
+# Prune the tree at optimal complexity parameter.
+ct.pruned <- prune(tree=causal_tree, cp=cp.optimal)
+rpart.plot(ct.pruned)
+```
+
+Now we can calculate predicted ATE on the estimation sample
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+# Predict point estimates (on estimation sample)
+fold2$CATE_CT_pruned <- predict(ct.pruned, newdata=fold2)
+num.leaves <- length(unique(fold2$CATE_CT_pruned))
+fold2$leaf <- factor(fold2$CATE_CT_pruned, levels=sort(unique(fold2$CATE_CT_pruned)), labels = seq(num.leaves))
+
+honest_ols <- lm( net_tfa ~ leaf + p401 * leaf - p401 -1, data =  fold2)
+summary(honest_ols)
+```
+
+One final approach to calculate the CATE is by using double ML. To apply the Double ML, we first need to create data in the form of a *DoubleMLData*. 
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+data <- data.table(data)
+features = c("age", "inc", "educ", "fsize",
+                  "marr", "twoearn", "db", "hown")
+
+# Initialize DoubleMLData (data-backend of DoubleML)
+data_dml = DoubleMLData$new(data,
+                                 y_col = "net_tfa",
+                                 d_cols = "p401",
+                                 x_cols = features)
+data_dml
+```
+
+First try the Partially Linear Regression model (MLPLR). Remember that the model is:
+
+$$y_i=\tau D_i + g(\mathbf x_i) + u_i$$
+where $D_i$ is the "treatment" variable and $\mathbf x_i$ is a vector that contains $k$ control variables, $g(\mathbf x_i)$ is an unknown function, and
+
+$$D_i=m(\mathbf x_i) + v_i, E(v_i | \mathbf X)=0 $$
+
+where $m(\mathbf x_i)$ is an unknown function for the propensity score. To estimate a PLR model with the double machine learning algorithm, we have to specify **learners** to estimate $g(.)$ and $m(.)$. 
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+# Trees
+ml_g = lrn("regr.rpart") # learner for the g function - lrn comes from the ml3 package... see here https://mlr3.mlr-org.com/reference/Learner.html parameters can be adjusted as preferred 
+# try, for example, ml_g$param_set$values = list(cp = 0.01)
+ml_m = lrn("classif.rpart") # learner for the m function - use classification tree
+
+# the above functions can be modified to use lasso (regr.glmnet and  regr.cv_glmnet), and other learners... for extra learners (e.g., gbm) install the following package
+# library(mlr3extralearners)
+# remotes::install_github("mlr-org/mlr3extralearners@*release")
+# use gbm learner:
+# ml_g = lrn("regr.gbm")
+
+set.seed(123)
+ml_plr_tree = DoubleMLPLR$new(data_dml,
+                               ml_g = ml_g, # this is the l function
+                               ml_m = ml_m, # this is the m function
+                               n_folds = 3)
+```
+
+Get the output
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+ml_plr_tree$fit()
+ml_plr_tree$summary() # summarise result on the CATE
+ml_plr_tree$bootstrap()
+ml_plr_tree$confint(joint=TRUE)
+
+```
+
+Now suppose we take an IV approach. Estimate the Double machine learning for Partially Linear IV Regression (PLIVR) model:
+
+$$y_i=\tau D_i + g(\mathbf x_i) + u_i, E(u_i|\mathbf Z,\mathbf X)=0$$
+$$z_i=m(\textbf x_i) + v_i, E(v_i|\mathbf X)=0$$
+
+To estimate a PLIVR model we have to specify 3 learners to estimate $g(.)$, $m(.)$ and $r(.)$ (that are called ml\_$g$, ml\_m, and ml\_r), where $g(.)$, $m(.)$ are as above, while $r(.)$ is a function that models: $E(D_i|X)$. Try the PLIVR and compare the size of the effect of *p401* in the DMLIV against the traditional IV, what do you observe?
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+data_dml_iv = DoubleMLData$new(data,
+                                    y_col = "net_tfa",
+                                    d_cols = "p401",
+                                    x_cols = features,
+                                    z_cols = "e401")
+data_dml_iv
+
+ml_g = lrn("regr.rpart") # learner for the g function
+ml_m = lrn("regr.rpart") # learner for the m function  - note: for now cannot be classification type
+ml_r = lrn("regr.rpart") #  learner for the propensity function - note: for now cannot be classification type
+# note again that I could use a different learner, e.g., lasso ("regr.cv_glmnet"), forest ("regr.ranger")
+
+set.seed(123)
+ml_ivm_lasso = DoubleMLPLIV$new(data_dml_iv,
+                                 ml_g = ml_g,
+                                 ml_m = ml_m,
+                                 ml_r = ml_r,                         
+                                 n_folds = 3)
+ml_ivm_lasso$fit()
+ml_ivm_lasso$summary()
+ml_ivm_lasso$confint()
+```
+
+
+Suppose we wish to use the more flexible approach where treatment effects are fully heterogeneous. We can use the Interactive regression model. Under this case:
+
+$$y_i= g(D, \mathbf x_i) + u_i$$
+where $D_i$ is the "treatment" variable and $\mathbf x_i$ is a vector that contains $k$ control variables, $g(D,\mathbf x_i)$ is an unknown function, and
+
+$$D_i=m(\mathbf x_i) + v_i, E(v_i | \mathbf X)=0 $$
+
+where $m(\mathbf x_i)$ is an unknown function for the propensity score.
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+ml_g = lrn("regr.rpart")
+ml_m = lrn("classif.rpart")
+set.seed(1234)
+dml_irm_obj = DoubleMLIRM$new(data_dml, 
+                              ml_g=ml_g, 
+                              ml_m=ml_m)
+dml_irm_obj$fit()
+print(dml_irm_obj)
+```
+
+It is possible to extract the fully heterogeneous treatment effects using the *psi_b* function
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+options(scipen=9999)
+summary(dml_irm_obj$psi_b)
+hist(dml_irm_obj$psi_b, breaks = 50)
+```
+
+
+Now suppose we take an IV approach. Estimate the Double machine learning for Partially Linear IV Regression (PLIVR) model:
+
+$$y_i=g(Z, x_i) + u_i, E(u_i|\mathbf Z,\mathbf X)=0$$
+$$D_i=r(Z, \textbf x_i) + u_i, E(u_i|Z,\mathbf X)=0$$
+
+$$z_i=m(\textbf x_i) + v_i, E(v_i|\mathbf X)=0$$
+
+To estimate a PLIVR model we have to specify 3 learners to estimate $g(.)$, $r(.)$ and $m(.)$ (that are called ml\_$g$, ml\_r, and ml\_m).
+
+<!-- https://docs.doubleml.org/r/stable/ -->
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+
+ml_l = lrn("regr.rpart")
+ml_m = lrn("classif.rpart")
+ml_r = lrn("classif.rpart")
+
+set.seed(1234)
+ml_iivm = DoubleMLIIVM$new(data_dml_iv,
+                                 ml_g = ml_l,
+                                 ml_m = ml_m,
+                                 ml_r = ml_r)
+ml_iivm$fit()
+ml_iivm$summary()
+```
+
+```{r, warning=F, message=F, echo=T, fig.align='center'}
+options(scipen=9999)
+summary(ml_iivm$psi_b)
+hist(ml_iivm$psi_b, breaks = 100)
+```

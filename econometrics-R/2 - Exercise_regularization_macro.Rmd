@@ -1,0 +1,168 @@
+---
+title: "Exercise 3: Testing the Convergence Hypothesis"
+output: pdf_document
+date: "April 2024"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## The Convergence Hypothesis
+
+According to the **Convergence Hypothesis** predicted by the **Solow Growth Model**, countries with low per-capita incomes should grow at faster rate than countries with high per-capita income and eventually converge. In this example we are interested in testing this hypothesis, and investigate how the rates at which economies of different countries grow are related to the initial wealth levels in each country, controlling for country's institutional, educational, and other characteristics. Suppose we have a sample of $n$ countries, and consider the following regression model:
+
+$$y_i=\beta_DD_i + \boldsymbol \beta_2'\mathbf w_i +\varepsilon_i$$
+where $y_i$ is the realized annual growth rate of country $i$th wealth (per-capita *Gross Domestic Product*), $D_i$ is the initial level of the country $i$ wealth, $\mathbf w$ is a set of institutional, educational characteristics and $\varepsilon_i$ is an error term. 
+
+The parameter $\beta_D$ measures the speed of convergence/divergence, which measures the speed at which poor countries catch up ($\beta_D<0$) or fall behind ($\beta_D>0$ rich countries, after controlling for $w$.
+
+Our inference question here is: do poor countries grow faster than rich countries, controlling for educational and other characteristics? In other words, is the speed of convergence negative: $\beta_D <0$?.
+
+The target parameter $\beta_D$ is the speed of convergence, which measures the speed at which poor countries catch up with rich countries. The controls ($w$) include measures of education levels, quality of institutions, trade openness, and political stability in the country. For further information see this [http://www.clmeconomia.jccm.es/pdfclm/barro_i.pdf](link). First load the data and check the structure of the data set.
+ 
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+
+# Helper packages
+library(dplyr)       # for data wrangling
+library(ggplot2)     # for plotting
+library(rsample)     # data splitting 
+library(fBasics)    # descriptive statistics
+
+# Modeling packages
+library(glmnet) # for lasso estimation
+library(hdm) # for rigorous and double lasso estimation
+
+data("GrowthData") # load the data
+GrowthData <- GrowthData %>% select( - intercept) # drop the intercept variable
+
+```
+
+The sample contains 90 countries and 63 controls $\rightarrow$ $k=63$, $n=90$, and $k/n$ is not small. Note that *gdpsh465* is our key variable (that we usually call $D$), namely the initial level of GDP in logs.
+
+If you plot initial wealth levels ($gdpsh465$) against economic growth ($Outcome$) what do you expect? Produce the graph and comment on the results
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, fig.align='center'}
+ggplot(GrowthData) + aes(x=gdpsh465, y=Outcome) + geom_point() + geom_smooth(method = "lm") + theme_bw()
+```
+We expect the least squares method to provide a poor estimate of $\beta_D$. First, try two "extreme" cases:
+
+1. Simple OLS regression of $Y$ on $D$ (this is to test absolute convergence hypothesis), and 
+
+2. Simple OLS of $Y$ on $D$ and all other controllers, $w$
+
+Comment on the results
+
+```{r, warning=F, message=F}
+# ADD YOUR CODE HERE
+model1 <- lm(Outcome ~ gdpsh465,data=GrowthData)
+model2 <- lm(Outcome ~ ., data = GrowthData)
+stargazer(model1,model2,type='text')
+## OLS <- ...
+```
+
+The first model is likely to suffer from an omitted variable bias. The second regression is likely to provide a rather noisy estimate (high standard error) of the speed of convergence. 
+
+In the case where the number of regressors is very large relative to the number of observations, Lasso regression may help. Try estimating the full model using Lasso regression. Remember the Lasso minimisation problem:
+
+$$\underset{\beta_0,\beta_1,...,\beta_k}{min} \sum_{i=1}^{n} (y_i- \beta_0 -  \sum_{j=1}^{k} \beta_j x_j)^2  + \lambda \sum_{j=1}^{k} |\beta_j|$$
+Where $\lambda$ is the penalisation parameter. How do we choose $\lambda$? We could create a grid of value for lambda varying, for example, between $10^{1}$ to $10^{-10}$, and estimate one regression for each value of lambda.
+
+Before running Lasso estimation, create a matrix, *X*, for the covariates (your features), and a vector *y* for your dependent variable.
+
+```{r, warning=F, message=F}
+y <- GrowthData[, 1] # output variable
+X <- as.matrix(GrowthData)[, -c(1)] # controls. I drop the column of 1
+```
+
+Create a grid of value for lambda varying between $10^{1}$ to $10^{-10}$. Use the seq() function to create a sequence of values.
+
+```{r, warning=F, message=F}
+grid=10^seq(1,-10,length=100)
+grid
+```
+
+Estimate the Lasso model for each value of $\lambda$ within the grid. To this end, use the *glmnet* function within the *glm* package. Print the estimated coefficients for the first and the last value of $\lambda$.
+
+```{r, warning=F, message=F}
+plot(grid,type = 'l')
+lasso.mod=glmnet(X,y,alpha=1,lambda=grid)
+dim(coef(lasso.mod))
+
+coef(lasso.mod)[,1] # coefficients for a very large value of lambda
+coef(lasso.mod)[,100] # coefficients for a very small value of lambda
+grid[1]
+grid[100]
+```
+
+To gain further insignts on the coefficient attached to *gdpsh465*, you can plot it (you can find this by typing *coef(lasso.mod)\[2,\]*) for varying values of $\lambda$
+
+```{r, warning=F, message=F}
+plot( log(grid), coef(lasso.mod)[2,] , type="l") # print in logs for easiness of interpretation
+```
+
+Plot the $R^2$ for varying values of $\lambda$ within the grid. This can be done using the *dev.ratio* variable within the *glmnet* output
+
+```{r, warning=F, message=F}
+plot(log(grid), lasso.mod$dev.ratio, type="l")
+```
+
+How do we choose the optimal value for $\lambda$? Cross validation (CV) is a practical and useful strategy for handling this task. The value of $\lambda$ that achieves the smallest CV error is considered the optimal value of $\lambda$. To this end, we use the *cv.glmnet()* function within the *glmnet* package. Use Lasso regression based on Cross Validation to select the optimal labda, and extract the estimated regression coefficients. Does *gdpsh465* have a non-zero regression coefficient?
+
+```{r, warning=F, message=F}
+options(scipen=999)
+set.seed(1234)
+lasso.cv = cv.glmnet(X, y, alpha=1) # does CV on glmnet. Type ?glmnet for help. alpha=1 for lasso regression
+lasso.cv$lambda.min # note: another popular choice is to take lasso.cv$lambda.1se: largest value of lambda such that error is within 1 standard error of the cross-validated errors for lambda.min
+# now use glmnet using the optimal lambda
+lasso.opt <-glmnet(X, y, alpha=1, lambda = lasso.cv$lambda.min)
+lasso.opt$beta
+plot(lasso.cv)
+```
+
+Coefficients estimated using Lasso have a bias due to the regularization. The bias associated with the Lasso is caused by the fact that the penalty tends to drive the values of the coefficient estimates toward 0. For this reason, it is often convenient to compute Post-Lasso estimates.
+
+```{r, warning=F, message=F}
+c <- lasso.opt$beta
+inds<-which(c!=0)
+variables<-row.names(c)[inds]
+optX<-X[,variables]
+postlasso=lm(y ~ optX)
+summary(postlasso)
+```
+
+When the final goal is inference, the Rigorous Lasso is often the preferred approach. Under this method, the value of $\lambda$ is chosen to guarantee optimal properties of the post-Lasso estimation. Apply now the Rigorous Lasso, using the *rlasso()* function within the *hdm* package. What happen to the $D$ variable? You can try using the option *penalty = list(homoscedastic = T)* to allow for heteroskedastick errors
+
+```{r,  warning=F, message=F, echo=T}
+set.seed(1234)
+Single_Selection <- rlasso(Outcome ~ ., data=GrowthData, post=T, penalty = list(homoscedastic = T))
+summary(Single_Selection)
+Single_Selection_het <- rlasso(Outcome ~ ., data=GrowthData, post=T, penalty = list(homoscedastic = F))
+summary(Single_Selection_het)
+
+# try post lasso where we force the variable gdpsh465 in the formula:
+selected = which(coef(Single_Selection)[-c(1:2)] !=0) # = Select relevant variables = #
+formula = paste(c("Outcome ~ gdpsh465", names(selected)), collapse = "+")
+summary(lm(formula, data = GrowthData))
+
+```
+
+One problem with the above procedure is that we might miss controls that have a strong predictive power for the treatment variable but only small effect on the dependent variable. This can lead to bias. One solution to this approach is use the Double Lasso. 
+Use Double Lasso to estimate $\beta_D$, and check which controllers have been selected in the regression. To this end, use the *rlassoEffect()* function within the *hdm* package. 
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+D <- X[,1] # target regressor
+W <- X[,-1] # exogenous variables
+set.seed(1234)
+double_selection = rlassoEffect(x = W, y = y, d = D, method = "double selection")
+summary(double_selection)
+double_selection$coefficients.reg
+
+cbind(summary(model_het[1,]), summary(double_selection))
+```
+
+
+
+
+
+
