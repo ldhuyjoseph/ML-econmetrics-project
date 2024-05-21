@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+
+##1.load data
+```{r}
+datas_short
+```
+
+##2.1.SUBSET DATA
+ q:necessary to add more cols from data? to do LM, ML (prediction)
+```{r}
+subset
+```
+
+##2.2 SUBSET for ys
+```{r}
+subset_belief
+subset_share_email
+```
+
+
+##4.1 LM SIMPLE
+q: overall guidance (reuse paper, conflicting ideas)
+q: iv ?
+q: is this enough (like the paper)?
+q: since y_sharing is binary, POSSIBLE to OLS instead of logit, probit?
+q: type of robust se, HC1 okay?
+
+a: to do logit, probit, how to vote?
+a: HC1 is ok, with the plot(lm) command , return->return to see fitted vs red
+
+```{r}
+h1_results_robust
+```
+
+
+##4.2 CORR MAT
+
+
+##4.3 LM FULL
+
+ q: when run LM, whether to disjoin ys, or inclusion for better results
+
+ q: but in the paper, no lin reg like this, only simple lin reg, why?
+ 
+ q: need to transform vars x?
+ 
+ $q$: difference in coeff estimate point 
+ a: drop y
+ a: comment on age-> skepticism, check with paper
+```{r}
+#overlap belief
+h1_full_results_robust
+```
+### to do
+## to work on more interaction term
+## LM with INTERACTION TERMS
+$q$
+```{r}
+summary(lm(y_belief_report_num~ d_treatment_source*x_education_fac,data=subset_belief))
+
+#how about this
+inter_terms
+
+h1a_lm_full <- lm(paste(c('y_belief_report_num ~ x_education_num + x_sex_num + x_age + x_income_num+'),inter_terms),data=subset_belief)
+summary(h1a_lm_full)
+
+
+```
+
+##4.3 LASSO
+## refer to us_2
+## LASSO
+$q$: different between coef point estimate 
+```{r}
+##sharing via email
+
+summary(Single_Selection)
+summary(Single_Selection_het)
+
+#post lasso
+cat('---POST LASSO---:\n')
+summary(postlasso)
+
+#rlasso
+cat('---RIGOROUS LASSO---:\n')
+summary(lm(formula, data = subset_share_email))
+
+
+#double lasso
+cat('---DOUBLE LASSO---:\n')
+summary(double_selection) 
+```
+
+$use$ $to$ $ask$ 
+##to ask
+q:motivation: should we use lasso when we have few vars, Also, care about $PREDICTION or INFERENCE$
+q: interpret the results: $graph$ and $numbers$
+a: add interaction term, to see how treatment hetero effect changes across indi having specific chars 
+... then could go lasso ($how about$ $reg$ $tree$)
+$q$: how to make interaction term, how about reg tree
+## to ask
+$q$: why hetero = T -> all null coeff ## to ask 
+$q$: rlasso
+$q$: double lasso: why only d, capture control with powerful prediction power for treatment $VS RLASSO$
+
+
+
+##ML PREDICTION (no inference)        
+##5.1 REG TREE
+
+$use$ $to$ $ask$ 
+##to ask
+q:movtivation:need to do reg tree?, other ML prediction with few variables?_> add more vars
+q:prediction, to compare with lm (lasso) vs gbm (no cp sofar) vs reg tree (cp) vs h20 (error) by comparing RMSE
+q: since reg tree, keep qualitative vars
+
+q: interprettion AFTER MOTIVATION: DPD, sum to 1, horizontal line
+#to ask
+```{r}
+
+```
+## 5.2 GBM
+##to ask
+##could leave behind
+q: interprettion:
+```{r}
+
+```
+## 5.3 GRID SEARCH H20
+```{r}
+
+```
+
+##6 Treatment Heterogeneity
+q: motivation, why go for treatment heter not LM
+q: how about endogeneity?
+
+##6.1 CAUSAL TREE
+q: CATE vs ATE
+q: motivation: if needed 
+
+q: interpretation
+```{r}
+
+```
+
+##6.2 CAUSAL FOREST
+
+q: motivation: need vars, like paper, no Elisa's code, there's Bauer's code
+
+q: interpretation
+```{r}
+
+```
+
+
+##6.3 METALEARNERS
+q: motivation, if needed, iv?, more vars?
+q: interpretation:

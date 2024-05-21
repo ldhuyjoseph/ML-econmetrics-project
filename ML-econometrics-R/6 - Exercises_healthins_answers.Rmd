@@ -1,0 +1,328 @@
+---
+title: 'Exercise 1: Does health insurance affect health and/or health care costs?'
+output: pdf_document
+date: "April 2024"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Americans often debate the causal effects of health insurance. Does health insurance affect health and/or health care costs? The view that insurance is beneficial on both counts motivated the 2010 Affordable Care Act, known also as Obamacare. The Affordable Care Act imposed tax penalties on the uninsured, but it remains true that some Americans are covered and some aren't (The 2017 Tax Cuts and Jobs Act ended the individual mandate). This brings us to the following question: Are the insured healthier than they would have been had they not been insured?
+
+We try to answer this question using two alternative data sets, the National Health Interview Survey, and the RAND experiment. 
+
+## The National Health Interview Survey
+
+First use the data from from the 2009 National Health Interview Survey to answer the following question: Are the insured healthier than they would have been had they not been insured?
+
+First load the data and carry some simple trasformations using the following code.
+
+```{r, message=F, warning=F}
+
+# Helper packages
+library(tidyverse) #  for data processing
+library(stargazer) #  for producing nice regression tables
+library(foreign) #  for importing data in Stata format
+library(stringr) #  for managing text data
+library(readr) # for reading data
+
+# Statistics and modeling packages
+library(fBasics) # package for summary statistics
+library(clubSandwich) # package for robust standard errors
+
+NHIS <- read_csv("/Users/elisatosetti/Dropbox (DROPBOX-DSEA)/TEACHING/PADUAteaching/INTRO TO ML/R CODES AND RESOURCES/Week1/data/NHIS2009_clean.csv")
+head(NHIS,10)
+```
+
+We extract numerical information from the textual *fsize* variable:
+
+```{r}
+# transform the fsize into numeric
+NHIS$fsize <- substring(NHIS$famsize,1,2)
+NHIS$fsize <- as.numeric(NHIS$fsize )
+table(NHIS$fsize)
+```
+
+In this application, our outcome variable, *y*, is the health score (*hlth*), while our treatment variable, *D*, is a dummy variable indicating whether the individual is insured or not (*hi*). 
+
+First, check the number of observations and number and format of variables.
+
+```{r}
+dim(NHIS)
+```
+
+```{r, eval=F,message=F, warning=F}
+str(NHIS)
+```
+
+Produce some summary statistics on the following variables: health score (hlth), health insurance (hi), whether non-white dummy (nwhite), age (age), years of education (yedu), family size (fsize), whether in employment (empl), and income (inc) using the *basicStats* function.
+
+```{r}
+# first we select the variables of interest - use dplyr package
+subset <- NHIS %>% select(hlth, hi, nwhite, age, yedu, fsize, empl, inc)
+# then produce the summary stats only on the selected variables - use the fBasics package
+summ_stats <- basicStats(subset)
+summ_stats
+
+```
+
+Calculate the Average Treatment Effect, separately for male and females.
+
+```{r, message=F, warning=F}
+# steps: take the data set, use dplyr to filter sex=males than group by health insurance status and calculate the mean of the health score
+health_males <- NHIS %>% filter(sex=="Male") %>% group_by(hi) %>% 
+  summarise(hlth=mean(hlth, na.rm = T)) 
+health_males
+```
+```{r, message=F, warning=F}
+# do the same for females
+health_females <- NHIS %>% filter(sex=="Female") %>% group_by(hi) %>% summarise(hlth=mean(hlth, na.rm = T))
+health_females
+```
+
+
+Carry a statistical test for the difference in the health score (*hlth*) between insured and uninsured for males...
+
+```{r, message=F, eval=FALSE, warning=F}
+# compare hlth for males insured vs males uninsured
+# males insured
+males_insured <- NHIS %>% filter(sex=="Male", hi==1)
+# males uninsured - please complete it yourself
+males_uninsured <-NHIS %>% filter(sex=="Male", hi==0)
+# t-test
+t.test(males_insured$hlth, males_uninsured$hlth)
+
+```
+
+... and then calculate it yourself for females
+
+```{r, message=F, warning=F}
+# do the same for females
+# compare hlth for males insured vs males uninsured
+# males insured
+females_insured <- NHIS %>% filter(sex=="Female", hi==1)
+# males uninsured - please complete it yourself
+females_uninsured <-NHIS %>% filter(sex=="Female", hi==0)
+# t-test
+t.test(females_insured$hlth, females_uninsured$hlth)
+```
+
+Rather than calculating t-stats, now use regression analysis:
+
+```{r, message=F, warning=F}
+males <- NHIS %>% filter(sex=="Male")
+m1 <- lm(hlth ~ hi, data=males)
+summary(m1)
+```
+
+```{r}
+# do the same for females (m2)
+females <- NHIS %>% filter(sex=="Female")
+m2 <- lm(hlth ~ hi, data=females)
+summary(m2)
+```
+
+The above regressions can be presented in a more elegant way using the *Stargazer* package
+
+```{r, message=F, eval=F, warning=F}
+stargazer(m1,m2,  type = "text")
+```
+
+In this example we have *grouped* data where the group (or cluster) is the household (identified by the serial number). In these cases it is often appropriate to use a variance estimator of regression estimates that is robust to both heteroskedasticity and arbitrary within-cluster correlations. Re-run the above regression analysis using robust standard errors setting household as cluster.
+
+```{r, message=F, eval=F, warning=F}
+vcov1 <- sqrt( diag( vcovCR(m1, cluster = males$serial, type = "CR1") ))
+
+# for further info on clustered standard errors see here https://bkenkel.com/pdaps/panel.html#clustered-standard-errors
+# for further info on the above command (and in particular the type option) see here https://cran.r-project.org/web/packages/clubSandwich/clubSandwich.pdf p.30
+```
+
+```{r, message=F, eval=F, warning=F}
+# do the same for females
+vcov2 <- sqrt( diag( vcovCR(m2, cluster = females$serial, type = "CR1") ))
+
+
+```
+
+Now use stargazer to report results
+
+```{r, message=F, eval=F, warning=F}
+stargazer(m1,m2,  type = "text",
+        se = list(vcov1,vcov2))
+```
+
+What do these differences in means mean? Perhaps this just tells us something about the people who are lucky enough to have access to cheap health care coverage or rich enough to pay for it. The insured may differ from the uninsured for reasons besides their insurance. Check the *nonwhite*, *age*, *education*, *family size*, *employment* and *family income* of uninsured and insured by gender using regression analysis.
+
+```{r, message=F,  warning=F}
+# males
+m1 <- lm(nwhite ~ hi, data=NHIS %>% filter(sex=="Male"))
+m2 <- lm(age ~ hi, data=NHIS %>% filter(sex=="Male"))
+m3 <- lm(yedu ~ hi, data=NHIS %>% filter(sex=="Male"))
+m4 <- lm(fsize ~ hi, data=NHIS %>% filter(sex=="Male"))
+m5 <- lm(empl ~ hi, data=NHIS %>% filter(sex=="Male"))
+m6 <- lm(inc ~ hi, data=NHIS %>% filter(sex=="Male"))
+
+stargazer(m1,m2,m3,m4,m5,m6, type="text", title = "Male characteristics")
+
+```
+
+```{r, message=F, warning=F}
+# females
+m1 <- lm(nwhite ~ hi, data=NHIS %>% filter(sex=="Female"))
+m2 <- lm(age ~ hi, data=NHIS %>% filter(sex=="Female"))
+m3 <- lm(yedu ~ hi, data=NHIS %>% filter(sex=="Female"))
+m4 <- lm(fsize ~ hi, data=NHIS %>% filter(sex=="Female"))
+m5 <- lm(empl ~ hi, data=NHIS %>% filter(sex=="Female"))
+m6 <- lm(inc ~ hi, data=NHIS %>% filter(sex=="Female"))
+
+stargazer(m1,m2,m3,m4,m5,m6, type="text", title = "Female characteristics")
+
+```
+
+Are the insured healthier than insured? Does paying an insurance make you healthier? Try to answer this question adopting a multivariate regression analysis, for all individuals and then separating males vs females. Use cluster-robust standard errors. 
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+# add your code here
+mall <- lm(hlth ~ hi + log(inc) + age + nwhite + yedu + fsize + empl, data=NHIS)
+mall_males <- lm(hlth ~ hi + log(inc) + age + nwhite + yedu + fsize + empl, data=males)
+mall_females <- lm(hlth ~ hi + log(inc) + age + nwhite + yedu + fsize + empl, data=females)
+stargazer(mall, mall_males, mall_females, type="text") # you could use robust regression here
+```
+
+**Propensity scores** are often used as weights to create a balanced sample of treated and control observations. A propensity score is the conditional probability of being in the treatment given a set of observed covariates. In practice we use statistical models where the dependent variable is dichotomous (treatment or control). Very often logistic regression is used, but with the advances in predictive models we have an ever increasing number of model choices including classification trees, ensemble such as gradient boosting or random forests, and many more.
+
+Calculate propensity weights using logistic regression, for the entire sample.
+
+```{r, message=F, eval=F, warning=F}
+re <- glm(hi ~   sex + nwhite + age + age2 + fsize + empl + inc + yedu , family="binomial", data=NHIS)
+summary(re)
+NHIS$prop_score <- predict(re, type = "response", data=NHIS)
+summary(NHIS$prop_score)
+```
+
+Note 1: In practice, we often restrict to propensity scores between 0.1 and 0.9....
+
+Note 1: Again, note that **we could use any Machine Learning model** to calculate the above propensity scores. Now compute weights:
+
+```{r, message=F, eval=F, warning=F}
+NHIS$weights <- ifelse(NHIS$hi==1, 1 / NHIS$prop_score, 1 / (1- NHIS$prop_score))
+NHIS$weights <- ifelse(NHIS$prop_score>=0.1 & NHIS$prop_score<=0.9 , NHIS$weights , NA )
+```
+
+In propensity score weighting, each observation is weighted by the inverse of the probability of being in that group. To calculate weighted ATE, we use a weighted regression:
+
+```{r, message=F, eval=F, warning=F}
+# NHIS$hlth_weighted <- NHIS$hlth * NHIS$weights
+# mean(NHIS$hlth_weighted*NHIS$hi, na.rm = T) - mean(NHIS$hlth_weighted*(1-NHIS$hi), na.rm = T)
+# or
+r <- lm(hlth ~ hi, data=NHIS, weights = weights)
+summary(r)
+```
+
+Is the difference between insured and uninsured significant after reweighing?
+
+What do you conclude about the effect of health insurance on the health of individuals using NHIS data?
+
+# The RAND experiment
+
+When insurance coverage is **randomly** assigned, as in a clinical trial or lottery, selection bias disappears. Suppose that $D_i$ is determined by the toss of a coin: heads you're covered; tails you're not. By virtue of random assignment, the insured and uninsured in this experiment are similar in every way except their insurance status.
+
+In the 1970s, the RAND Corporation randomly assigned about 6,000 people (who agreed to drop their own insurance) to experimental insurance plans that required either no cost-sharing, a modest deductible, or imposed 25\%, 50\% or 95\% coinsurance rates on subscribers, capped at a maximum annual payment of \$1000. Check this [paper](https://www.jstor.org/stable/pdf/3765515.pdf?refreqid=fastly-default%3A3fa6b86db7dd446890ae38206cfcc556&ab_segments=&origin=&initiator=&acceptTC=1) for more information.
+
+Load the data and check the different types of insurance plans. We have:
+
+* Plan type 1 = "Free care"
+
+* Plan type 2 = "Deductible plan"
+
+* Plan type 3 = "Coinsurance plan"
+
+* Plan type 4 = "Catastrophic plan" or "No Insurance"
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+rand_sample <- read_csv("/Users/elisatosetti/Dropbox (DROPBOX-DSEA)/TEACHING/PADUAteaching/INTRO TO ML/R CODES AND RESOURCES/Week1/data/rand_initial_sample_2.csv")
+head(rand_sample,10)
+```
+
+Count how many individuals by plan type
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+table(rand_sample$plantype)
+```
+
+Calculate the differences in gender, race (blackhisp), age, education, income by plan types against the catastrophic plan, using regression analysis
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+m1 <- lm(female ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m2 <- lm(blackhisp ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m3 <- lm(age ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m4 <- lm(educper ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m5 <- lm(income1cpi ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+stargazer(m1,m2,m3,m4,m5, type="text")
+```
+
+Again, it is often useful to adopt robust standard errors to account for heteroskedasticity. Try to adopt clustered standard errors using the *fam_identifier* as cluster.
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+vcov1 <- sqrt( diag( vcovCR(m1, cluster =rand_sample$fam_identifier, type = "CR1") ))
+vcov2 <- sqrt( diag( vcovCR(m2, cluster =rand_sample$fam_identifier, type = "CR1") ))
+vcov3 <- sqrt( diag( vcovCR(m3, cluster =rand_sample$fam_identifier, type = "CR1") ))
+vcov4 <- sqrt( diag( vcovCR(m4, cluster =rand_sample$fam_identifier, type = "CR1") ))
+vcov5 <- sqrt( diag( vcovCR(m5, cluster =rand_sample$fam_identifier, type = "CR1") ))
+
+stargazer(m1,m2,m3,m4,m5, type = "text",
+          se = list(vcov1,vcov2,vcov3,vcov4,vcov5))
+```
+
+We now check whether health baseline (before the treatment) characteristics vary across plan types:
+
+* *ghindx*: "General health index" from 1 to 100
+
+* *cholest*: "Cholesterol (mg/dl)"
+
+* *systol*: "Systolic blood pressure (mm Hg)"
+
+* *mhi*: "Mental health index"
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+m2 <- lm(ghindx ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m3 <- lm(cholest ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m4 <- lm(systol ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m5 <- lm(mhi ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+stargazer(m2,m3,m4,m5, type="text")
+```
+
+Now check whether health characteristics **after** the treatment vary across plan types:
+
+* *ghindxx*: "General health index" from 1 to 100
+
+* *cholestx*: "Cholesterol (mg/dl)"
+
+* *systolx*: "Systolic blood pressure (mm Hg)"
+
+* *mhix*: "Mental health index"
+
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+m2 <- lm(ghindxx ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m3 <- lm(cholestx ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m4 <- lm(systolx ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+m5 <- lm(mhix ~ plantype_1 + plantype_2 + plantype_3, data=rand_sample)
+stargazer(m2,m3,m4,m5, type="text")
+```
+
+Include also some additional regressors. Although this is a randomised experiment, adding controls can help in improving the precision of estimates.
+
+```{r, out.width="50%", out.height="50%", warning=F, message=F, echo=T, fig.align='center'}
+m2 <- lm(ghindxx ~ plantype_1 + plantype_2 + plantype_3+ female + blackhisp + age + educper + income1cpi, data=rand_sample)
+m3 <- lm(cholestx ~ plantype_1 + plantype_2 + plantype_3+ female + blackhisp + age + educper + income1cpi, data=rand_sample)
+m4 <- lm(systolx ~ plantype_1 + plantype_2 + plantype_3+ female + blackhisp + age + educper + income1cpi, data=rand_sample)
+m5 <- lm(mhix ~ plantype_1 + plantype_2 + plantype_3+ female + blackhisp + age + educper + income1cpi, data=rand_sample)
+stargazer(m2,m3,m4,m5, type="text")
+```
+
+On the basis of these results, does insurance cause the insured to be healthier?
+

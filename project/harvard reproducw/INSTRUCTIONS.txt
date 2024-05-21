@@ -1,0 +1,13 @@
+# INPUT FILES NEEDED:
+# - Files contained in the folder "input"
+# - chicago-author-date.csl
+# - multiple-bibliographies.lua
+# - partial_bib_1.bib
+# - partial_bib_2.bib
+
+# HOW TO REPRODUCE THE PAPER:
+# - Run "paper_final.Rmd" in R Studio.
+
+# The causal forest algorithm may produce slightly different results when reproducing the study.
+
+# References may differ from the published version as they have been updated when correcting the proofs.

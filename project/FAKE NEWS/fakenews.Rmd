@@ -1,0 +1,41 @@
+---
+title: "Fake News and Belief"
+output: pdf_document
+date: "April 2024"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The increasing spread of fake news represents one of the great challenges digital societies face in the 21st century. These data allow to investigate the effect of sources (real vs. fake) on belief and sharing. The data are a subset of the data used in the following paper:
+
+* Bauer, Paul C., and Bernhard Clemm von Hohenberg. 2020. "Believing and Sharing Information by Fake Sources: An Experiment."
+
+The paper can be found at this [link](https://osf.io/preprints/osf/mrxvc)
+
+Further information on the data (with a more advanced version of the data) can also be found at this [link](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/EJYWCK).
+
+The variables in the data set are:
+
+y\_belief_report_*: Variable taking value from 0 to 6 measuring belief in truth of report
+
+y\_share_report_*: Variable (0-1) measuring whether someone would share the report on different platforms
+
+d\_treatment\_source: Treatment variable where 0 = news is fake and 1 = news is real
+
+x\_age: Age
+
+x\_sex_*: Gender (Male = 1, Female = 0)
+
+x_income_*: Income levels (1-11)
+
+x_education*: Levels of education (0-5)
+
+Data can be loaded using the following commands:
+
+```{r}
+data <- read.csv("fakenewsdata.csv")
+```
+
+<!-- NOTE THAT ORIGINAL DATA ARE IN GERMAN -->

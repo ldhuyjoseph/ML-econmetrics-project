@@ -1,0 +1,648 @@
+---
+title: "Exercise 1: Predicting and Explaining House Prices in the United States"
+output: pdf_document
+date: "April 2024"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Machine learning (ML) is a way to make fast, automatic and good predictions. Prediction is simply **mapping** from one defined input to an output. What machine learning really does is to learn this mapping function, even if it is a very complicated function. A more technical way of thinking about ML is in term of estimating (possibly very complex) expectation functions: $E(y|X)$, where $y$ is what we wish to predict and X is what we already know. Machine learning is simply a way of estimating that conditional expectation function. Available methods for supervised ML: Regression/Decision trees, Ensemble methods (random forest, bagging, boosting), Neural networks, Deep learning. In this tutorial we will learn how to use regression trees and gradient boosting. 
+
+## Technical aspects of regression trees
+
+Regression trees algorithms are useful for both regression (regression trees) and classification problems (classification or decision trees). They use a branching structure to illustrate the results of a decision.
+
+In essence, a regression tree partitions the train data set into homogeneous subgroups (i.e., groups with similar response values). The subgroups (also called nodes) are formed recursively using binary partitions formed by asking simple yes-or-no questions about each feature. 
+
+Suppose we have $k$ regressors, or input variables. We divide the predictor space, that is, the set of possible values for $X_1,X_2,X_3,...,X_k$ into $J$ distinct and non-overlapping regions, $R_1,R_2,...,R_J$. How do we construct the regions $R_1,...,R_J$? We find the regions $R_1,...,R_J$ that minimize the \textbf{Sum of Squared Residuals} (SSR), given by
+
+\begin{equation*}
+    SSR=\sum_{j=i}^J \sum_{i \in R_J} (Y_i-\hat{Y}_{R_j})^2 + \alpha \cdot T
+\end{equation*}
+
+where $\hat{Y}_{R_j}$ is the mean response for the training observations within the $j$th region, and $T$ is the number of terminal nodes in the tree, $\alpha$ is a cost-complexity parameter that penalises the complexity of the tree.
+
+# An empirical example: explaining and predicting house prices in Iowa
+
+Suppose we are interested in predicting house prices. We use a large and rich data set called *ames* available from the *AmesHousing* package. First load the packages and the *ames* data set:
+
+```{r, warning=F, message=F}
+
+# Helper packages
+library(dplyr)       # for data wrangling
+library(ggplot2)     # for awesome plotting
+library(rsample)     # data splitting 
+library(fastDummies) # for creating dummy variables
+
+# Modelling packages
+library(rpart)       # package for regression/decision tree estimation
+library(gbm) # package for gradient boosting estimation
+library(h2o)       # package for training ML models
+library(caret)  # another package for training and evaluation ML models
+
+# Model interpretability packages
+library(rpart.plot)  # for plotting decision trees
+library(vip)         # for feature importance
+library(pdp)         # for feature effects
+
+# Helper packages
+library(dplyr)       # for data wrangling
+library(ggplot2)     # for plotting
+library(rsample)     # data splitting 
+library(fBasics)    # descriptive statistics
+
+# Modeling packages
+library(glmnet) # for lasso estimation
+library(hdm) # for rigorous and double lasso estimation
+ames <- AmesHousing::make_ames()
+```
+
+Split the data set into two pieces — a training set and a testing set. This consists of random sampling without replacement a portion (try with 70 percent) of the rows (you can vary this) and putting them into your training set. The remaining data set is your testing set.
+##copy this
+## to na.omit()
+```{r}
+
+#subset with fac only working
+subset <- datas_short[,c("y_belief_report_num",
+                         "y_share_report_email_num",
+                         "y_share_report_fb_num",
+                         "y_share_report_twitter_num",
+                         "y_share_report_whatsapp_num",
+                         "x_education_fac",
+                         "x_sex_num",
+                         'x_age',
+                         'x_income_fac',
+                         "d_treatment_source"
+                         )]
+```
+
+```{r}
+#create subset for y's
+#create subset for y's
+#1st col, mine, 2nd col, Elisa's
+#for belief
+subset_belief <- 
+  subset[,c(-2,-3,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_belief)
+
+#for email
+subset_share_email <- 
+  #subset[,c(-3,-4,-5)] %>%
+  subset[,c(-1,-3,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_email)
+
+#for fb
+subset_share_fb <-
+  #subset[,c(-2,-4,-5)] %>%
+  subset[,c(-1,-2,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_fb)
+
+#for twitter
+subset_share_twitter <- 
+  #subset[,c(-2,-3,-4)] %>%
+  subset[,c(-1,-2,-3,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_twitter)
+
+#for whatsapp
+subset_share_whatsapp <-
+  #subset[,c(-2,-3,-5)] %>%
+  subset[,c(-1,-2,-3,-4)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_whatsapp)
+
+```
+##copy this
+## aggregate
+```{r}
+subset_share_fb<-subset_share_email
+subset_share_fb
+colnames(subset_share_fb)[2]
+subset_share_fb <- subset_share_fb %>% rename(y = colnames(subset_share_fb)[2] )
+subset_share_fb
+rpart.plot(tree )  
+subset_train
+```
+##to ask
+# anova or class
+#with this dataset, get weird prediction
+```{r}
+#work on fb
+
+
+# Set a seed for reproducibility
+set.seed(123)
+# Split the data into training and testing sets
+n <- nrow(subset_share_fb)
+split <- sample(1:n, floor(n*7/10))
+subset_train <- subset_share_fb[split, ]
+subset_test <- subset_share_fb[-split, ]
+
+tree <- rpart(formula = y_share_report_fb_num ~., #x_age+x_sex_num+x_education_num+y_belief_report_num+d_treatment_source,
+              data    = subset_train,
+              cp=0, method="class")  # use method="class" for classification # cp=0.01 #method='anova'
+# check rpart.control for parameter tuning
+# summary(tree) # you can use this function to check the details of the tree
+rpart.plot(tree )  
+
+cpt <- tree$cptable
+cpt <- as.data.frame(cpt)
+cp.min <- which.min(cpt$xerror) # find minimum error
+cp.idx <- which(cpt$xerror- cpt$xerror[cp.min] < cpt$xstd)[1]  # at most one std. error from minimum error
+cp.best <-cpt$CP[cp.idx]
+cp.best
+
+# Prune the tree
+pruned.tree <- prune(tree, cp=cp.best)
+rpart.plot(pruned.tree )
+
+y.hat <- predict(pruned.tree, newdata = subset_train)
+
+num.leaves <- length(unique(y.hat))
+
+# Leaf membership, ordered by increasing prediction value
+leaf <- factor(y.hat, ordered = TRUE, labels = seq(num.leaves))
+
+add_col <- dummy_cols(subset_train[,2], remove_selected_columns = T) # transform qualitative var in a set of dummy variables
+descriptive <- cbind(subset_train[,-1], leaf, add_col)
+
+p1 <- descriptive %>% group_by(leaf) %>%  summarise_all( ~ mean(.x, na.rm = TRUE))
+p1
+
+vip(pruned.tree, target = subset_train[,1], metric = "rmse")
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area"), plot = TRUE)
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area","Overall_Qual"), plot = TRUE)
+
+```
+```{r}
+source('/Users/ldhuyjoseph/Documents/R/func/regression tree.R')
+c<-c(colnames(subset_share_email)[-2])
+```
+
+
+```{r}
+```{r}
+y.hat <- predict(pruned.tree, newdata = subset_train)
+subset_train
+length(y.hat)
+num.leaves <- length(unique(y.hat))
+num.leaves
+# Leaf membership, ordered by increasing prediction value
+leaf <- factor(y.hat, ordered = TRUE, labels = seq(num.leaves))
+
+leaf
+
+add_col <- dummy_cols(subset_share_fb[,2], remove_selected_columns = T) # transform qualitative var in a set of dummy variables
+descriptive <- cbind(subset_share_fb[,-2], add_col, leaf)
+
+p1 <- descriptive %>% group_by(leaf) %>%  summarise_all( ~ mean(.x, na.rm = TRUE))
+p1
+
+vip(pruned.tree, target = subset_share_fb[,2], metric = "rmse")
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area"), plot = TRUE)
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area","Overall_Qual"), plot = TRUE)
+
+```
+
+reg_tree(subset_share_fb = subset_share_fb,c)
+
+```{r, echo=T, warning=F, message=F}
+# Set a seed for reproducibility
+set.seed(123)
+# Split the data into training and testing sets
+n <- nrow(subset_share_fb)
+split <- sample(1:n, floor(n*7/10))
+subset_train <- subset_share_fb[split, ]
+subset_test <- subset_share_fb[-split, ]
+```
+
+Now fit a tree using the *rpart* function from the *rpart* package, using as explanatory variables *Gr\_Liv\_Area* and *Overall\_Qual*. Note that in the *rpart* function we need to specify the complexity paramater *cp*. As an example, set it to 0.01.
+```{r}
+colnames(subset)#subset
+```
+## copy this
+
+method =? and cp=?
+```{r}
+tree <- rpart(formula = y_share_report_fb_num ~., #x_age+x_sex_num+x_education_num+y_belief_report_num+d_treatment_source,
+              data    = subset_train,
+              cp=0, method="anova")  # use method="class" for classification # cp=0.01 #method='anova'
+# check rpart.control for parameter tuning
+# summary(tree) # you can use this function to check the details of the tree
+rpart.plot(tree )  
+```
+
+Add the variable *Electrical* to the above model. What do you obtain?
+
+```{r}
+# ADD YOUR CODE HERE
+```
+
+What is the meaning of the *cp* parameter? What happens if you do not put any penalisation on the complexity of the tree? This can be done by setting the parameter $cp=0$. Go back to you previous model and estimate it this time setting $cp=0$.
+
+```{r, echo=T, warning=F, message=F}
+# WRITE YOUR CODE HERE
+# note that in rpart we use cp=0 to avoid penalisation. This leads to very large trees
+
+```
+
+Now plot the  average standard deviation of the CV errors versus the *cp* parameter using the function *plotcp*. Note that *plotcp* uses information from the *cptable*. Note the horizontal dashed line, that is drawn 1 standard error above the minimum of the curve
+
+```{r, echo=T, warning=F, message=F}
+plotcp(tree)
+```
+A good choice of *cp* for pruning is often the leftmost value for which the mean lies below the horizontal line... Select the optimal value for *cp*
+
+#copy this
+```{r, echo=T, warning=F, message=F}
+# Retrieves the optimal parameter
+cpt <- tree$cptable
+cpt <- as.data.frame(cpt)
+cp.min <- which.min(cpt$xerror) # find minimum error
+cp.idx <- which(cpt$xerror- cpt$xerror[cp.min] < cpt$xstd)[1]  # at most one std. error from minimum error
+cp.best <-cpt$CP[cp.idx]
+cp.best
+```
+
+Now prune the tree using the *cp.best* optimal parameter and plot it
+#copy this
+```{r, echo=T, warning=F, message=F}
+# Prune the tree
+pruned.tree <- prune(tree, cp=cp.best)
+rpart.plot(pruned.tree ) 
+```
+
+Retrieve predictions from pruned tree and calculate the RMSE
+
+```{r, echo=T, warning=F, message=F}
+pred <- predict(pruned.tree, newdata = subset_test)
+RMSE(pred = pred, obs = subset_test$y_share_report_fb_num)
+```
+```{r}
+pred
+subset_test$y_share_report_fb_num
+```
+
+It is often of interest to investigate what is the average value of covariates within each leaf. This gives us an indication of how the joint distribution of covariates varies for subgroups with different estimated dependent variable. Add to your data set the leaf membership and create a data set with the within-leaf average value of covariates.
+
+```{r, echo=T, warning=F, message=F}
+y.hat <- predict(pruned.tree, newdata = subset_train)
+num.leaves <- length(unique(y.hat))
+
+# Leaf membership, ordered by increasing prediction value
+leaf <- factor(y.hat, ordered = TRUE, labels = seq(num.leaves))
+
+add_col <- dummy_cols(subset_train$y_share_report_fb_num, remove_selected_columns = T) # transform qualitative var in a set of dummy variables
+descriptive <- cbind(subset_train[,c(-2)], add_col, leaf)
+
+p1 <- descriptive %>% group_by(leaf) %>%  summarise_all( ~ mean(.x, na.rm = TRUE))
+p1
+
+vip(pruned.tree, target = "y_share_report_fb_num", metric = "rmse")
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area"), plot = TRUE)
+
+partial(pruned.tree, pred.var = c("Gr_Liv_Area","Overall_Qual"), plot = TRUE)
+
+```
+
+What are the most important covariates? The *vip* command from the *vip* package allows to implement a permutation approach. Use this function to explore the variable importance of the included features 
+
+```{r, echo=T, warning=F, message=F}
+vip(pruned.tree, target = "y_share_report_fb_num", metric = "rmse")
+```
+
+Finally, build the partial dependence plot for the variable $Gr\_Liv\_Area$, and for the joint variables $Year\_Built$ and $Overall\_Qual$
+
+```{r, echo=T, warning=F, message=F}
+partial(pruned.tree, pred.var = c("Gr_Liv_Area"), plot = TRUE)
+```
+
+```{r, echo=T, warning=F, message=F}
+partial(pruned.tree, pred.var = c("Gr_Liv_Area","Overall_Qual"), plot = TRUE)
+```
+
+Now, to practise, design a regression tree for a model having as covariates all columns in the *ames* data set.
+
+```{r}
+# ADD YOUR CODE HERE
+```
+
+Advantages of trees:
+
+* Easy to understand 
+
+* Trees can be displayed graphically
+
+Disadvantage:
+
+* Poor predictive accuracy, prone to overfit
+
+By **combining many regression trees** together into an overall **ensemble** the predictive performance of trees can be substantially improved. Examples of ensembled models are:
+
+* **Bagging**: extracts several random samples from the original training data set, fit regression trees on each of them and then average the resulting predictions
+
+* **Random forests**: same as bagging but tries to improve it by  forcing each split in a tree to consider only a subset of the predictor
+
+* **Boosting**: estimate several trees **sequentially**
+
+## Gradient boosting
+
+A **powerful** machine learning algorithm, often winner of Kaggle competitions. It combines multiple trees like bagging and random forest, by adding new models to the ensemble sequentially.
+
+General idea: Given the current model, we fit a regression tree to the residuals from the model. That is, we fit a tree using the current residuals, rather than the outcome $Y$, as the response. We then add this new regression tree into the fitted function in order to update the residuals. Each of these trees can be rather small (\textbf{shallow}), with just a few terminal nodes. By fitting small trees to the residuals, we slowly improve the fitting in areas where it does not perform well. For this reason boosting is often said to be a method of \textbf{converting weak learners into strong learner}
+
+More technically:
+
+\begin{enumerate}
+    \item Fit a regression tree to the data: $Y=f_1(X)$, and then calculate residuals: $r_1(X)=Y-\hat f_1(X)$
+    \item Fit a regression tree to $r_1(X)$ and calculate new residuals: $r_2(X)=r_1(X)- \hat f_2(X)$
+    \item Fit a regression tree to the residuals $r_2(x)$
+    \item ...
+    \item Continue this process until a suitable stopping rule is satisfied
+\end{enumerate}
+
+In the final function that represents the boosting, combining all trees together, we also assign a weight to each tree estimated above, this weight (or parameter) is called \textbf{Learning Rate} or \textbf{Shrinkage}, small values for this parameter imply slow learning speed and more accurate results.
+
+In order to train a gradient boosting model in R, you can use the *gbm* function from the *gbm* library. \textbf{Essential} arguments of the *gbm* function:
+
+* The formula (like in the lm() function)
+* The distribution of your response variable (e.g., Bernoulli, Gaussian, etc. if not specified then gbm will try to guess)
+* The data
+
+Additional parameters that require tuning:
+
+* *n. trees*: the number of trees to use in the algorithm (default 100 trees)
+* *Interaction.depth*: Sometimes a tree with a single split is enough. Between 1 and 10 (default 1)
+* *n.minobsinnode*: the minimum number of observations in the terminal nodes of the trees (default is 10)
+* *Learning rate* (Shrinkage): The lower the better, but at the expense of a higher computational time (default 0.1)
+* *Bag fraction*: It is possible to sample uniformly without replacement from the data set before estimating the next gradient. This parameter regulates the portion of sample used for sampling (default to 0.5)
+* *cv.folds*: Number of cross-validation folds to perform (better set>1)
+* *Other subsampling features*: (cv.folds, train.fraction, etc.) parameters regulating the portion of sample used for validation of the model
+
+Estimate a GBM model using 10,000 trees, interaction.depth = 1, shrinkage=0.001, and all other parameters set to default.
+
+
+##to copy
+## dist=multinomial?
+```{r, echo=T, warning=F, message=F}
+
+#belief
+
+# NB: only formula, and data are essential argument in the gbm function: 
+# if other parameters are not specified they are set to default
+# see ?gbm for default settings
+# Note that the estimation below could take a while on your machine...
+
+set.seed(123)
+# Split the data into training and testing sets
+n <- nrow(subset_belief)
+split <- sample(1:n, floor(n*7/10))
+subset_train <- subset_belief[split, ]
+subset_test <- subset_belief[-split, ]
+
+gbm.fit <- gbm(
+  formula = y_belief_report_num ~ ., 
+  distribution = "multinomial", # guassian is used for continuous variables
+  data = subset_train,
+  n.trees = 10000,
+  n.minobsinnode = 5,
+  interaction.depth = 1,
+  shrinkage = 0.001,
+  cv.folds = 5)  
+gbm.fit
+
+```
+
+You can plot the loss function as a function of the number of trees added to the ensemble with the command *gbm.perf*. The blue vertical dashed line indicates the number of trees that lead to minimum SSR...
+##to copy
+```{r, echo=T, warning=F, message=F}
+gbm.perf(gbm.fit, method = "cv")
+```
+
+
+### to ask
+## what is green line
+
+
+```{r, echo=T, warning=F, message=F}
+pred <- predict(gbm.fit, newdata = subset_test)
+RMSE(pred = pred, obs = subset_test$y_belief_report_num)
+
+```
+#to copy 
+
+```{r}
+pippo <- (lm(y_belief_report_num ~  ., data=subset_train))
+pred <- predict(pippo, newdata = subset_test)
+RMSE(pred = pred, obs = subset_test$y_belief_report_num)
+```
+
+
+
+The above graph suggests to increase the number of trees, or increase the depth of the trees. Next, train a GBM model using 5,000 trees, interaction.depth = 3, shrinkage=0.1, and all other parameters set to default.
+
+```{r, echo=T, warning=F, message=F}
+
+set.seed(123)
+gbm.fit2 <- gbm(
+  formula = Sale_Price ~ .,
+  distribution = "gaussian",
+  data = ames_train,
+  n.trees = 5000, # I have decreased the number of trees to 5000
+  interaction.depth = 3,
+  n.minobsinnode = 5,
+  shrinkage = 0.1, # I have increased the learning rate to 0.1
+  cv.folds = 5)  
+
+print(gbm.fit2)
+```
+
+```{r, echo=T, warning=F, message=F}
+gbm.perf(gbm.fit2, method = "cv")
+```
+
+
+```{r, echo=T, warning=F, message=F}
+pred <- predict(gbm.fit2, newdata = ames_test)
+RMSE(pred = pred, obs = ames_test$Sale_Price)
+```
+
+It seems that a model with trees deeper than one split tend to perform best. 
+
+What are the most important covariates? Apply the *vip* function to explore the variable importance of the included features in your gbm model
+
+```{r, echo=T, warning=F, message=F}
+# ADD YOUR CODE HERE
+```
+
+Finally, build the partial dependence plot for the variable $Gr\_Liv\_Area$..
+
+```{r, echo=T, warning=F, message=F}
+# ADD YOUR CODE HERE
+```
+
+The *h2o* package (see this [link](https://docs.h2o.ai/h2o/latest-stable/h2o-docs/welcome.html) for documentation) is a powerful and efficient java-based interface that allows for local and cluster-based deployment. We can use the *h2o.grid* grid search function for hyperparameter optimization to select the best gbm model... Note that the *h2o.grid* function can be used with many other ML methods (e.g., forests, support vector machines, extreme gradient boosting, etc.). Compare the performance of *gbm.fit2* with that of the model obtained with the *h2o.grid* function from the *h2o* package.
+
+```{r, echo=T, warning=F, message=F}
+h2o.init()
+
+traindata <- as.h2o(ames_train)
+testdata <- as.h2o(ames_test)
+
+## grid search using h2o
+param <-  list(max_depth = c(1,3),
+               learn_rate=c(0.01, 0.1, 0.5),
+               ntrees=c(5000))
+
+  Grid     <- h2o.grid("gbm",
+                       x                  = colnames(traindata)[-79],
+                       y                  = "Sale_Price",
+                       grid_id = "gbm_grid1",
+                       training_frame     = traindata,
+                       hyper_params       = param,
+                       seed               = 1234,        # Seed for random numbers
+                       min_rows = 5, 
+                       nfolds             = 5)
+
+# OUTPUT OF THE GRID SEARCH 
+# Grid
+# H2O Grid Details
+# ================
+# 
+# Grid ID: gbm_grid1 
+# Used hyper parameters: 
+#   -  learn_rate 
+#   -  max_depth 
+#   -  ntrees 
+# Number of models: 6 
+# Number of failed models: 0 
+# 
+# Hyper-Parameter Search Summary: ordered by increasing residual_deviance
+#   learn_rate max_depth     ntrees         model_ids residual_deviance
+# 1    0.01000   3.00000 5000.00000 gbm_grid1_model_4   530741635.93618
+# 2    0.10000   3.00000 5000.00000 gbm_grid1_model_5   557561917.73504
+# 3    0.01000   1.00000 5000.00000 gbm_grid1_model_1   668816576.29839
+# 4    0.50000   3.00000 2475.00000 gbm_grid1_model_6   770509688.15369
+# 5    0.10000   1.00000 5000.00000 gbm_grid1_model_2   773043736.14918
+# 6    0.50000   1.00000 5000.00000 gbm_grid1_model_3   830473773.35424
+
+pros_gbm <- h2o.gbm(x = colnames(traindata)[-79],
+                    y = "Sale_Price",
+                    learn_rate=0.01,
+                    ntrees=5000,
+                    max_depth = 3,
+                    min_rows = 5,
+                    nfolds = 5,
+                    seed = 1234,
+                    training_frame = traindata)
+
+# Eval performance:
+perf <- h2o.performance(pros_gbm, newdata = testdata)
+pef
+## alternatively, use the gbm function see above to estimate the optimal model
+
+# pros_gbm <- gbm(formula = Sale_Price ~ .,
+#                 distribution = "gaussian",
+#                 data = ames_train,
+#                 n.trees = 5000, 
+#                 interaction.depth = 3,
+#                 n.minobsinnode = 5,
+#                 shrinkage = 0.01, # I have increased the learning rate to 0.1
+#                 cv.folds = 5)  
+# 
+# pred <- predict(pros_gbm, newdata = ames_test)
+# RMSE(pred = pred, obs = ames_test$Sale_Price)
+
+h2o.shutdown()
+
+```
+
+
+<!-- ```{r, echo=T, warning=F, message=F} -->
+<!-- varimp <- h2o.varimp(pros_gbm, top_n = 20) -->
+<!-- as.data.frame(varimp) -->
+<!-- ``` -->
+
+<!-- ```{r, echo=T, warning=F, message=F} -->
+<!-- h2o.partialPlot(object =   pros_gbm, newdata = traindata, cols = c("Gr_Liv_Area")) -->
+<!-- ``` -->
+
+Try the following exercise:
+
+**Exercise 1:** Use the *Carseats* dataframe from the ILSR package:
+
+* Plot *Sales* as a function of *Price*
+
+* Split the dataset in two separate sets: the training set with 70\% of the observations and 30\% for the test set. Use 14 as seed.
+
+* Fit a linear regression model to predict *Sales* using all remaining variables as regressors
+
+* Compute the MSE for the model 
+
+* Now implement a regression tree using the same variables you used for the linear regression model above. Which is the best value of cp parameter in terms of validation error? Now implement a gradient boosting Compare the regression model, the regression trees and gradient boosting. Which is the best model? 
+
+* Investigate what are the most important factors explaining sales of *carseats* in supermarkets
+
+```{r, include=F, eval=F}
+n <- nrow(Carseats)
+split <- sample(1:n, floor(n*7/10))
+Carseats_train <- Carseats[split, ]
+Carseats_test <- Carseats[-split, ]
+
+pippo <- (lm(Sales ~  ., data=Carseats_train))
+pred <- predict(pippo, newdata = Carseats_test)
+RMSE(pred = pred, obs = Carseats_test$Sales)
+
+pluto <- rpart(Sales ~  ., data=Carseats_train, cp=0)
+cpt <- pluto$cptable
+cpt <- as.data.frame(cpt)
+cp.min <- which.min(cpt$xerror) # find minimum error
+cp.idx <- which(cpt$xerror- cpt$xerror[cp.min] < cpt$xstd)[1]  # at most one std. error from minimum error
+cp.best <-cpt$CP[cp.idx]
+cp.best
+pruned.tree <- prune(pluto, cp=cp.best)
+rpart.plot(pruned.tree )
+
+y.hat <- predict(pruned.tree, newdata = Carseats_train)
+num.leaves <- length(unique(y.hat))
+
+# Leaf membership, ordered by increasing prediction value
+leaf <- factor(y.hat, ordered = TRUE, labels = seq(num.leaves))
+
+add_col <- dummy_cols(Carseats_train$ShelveLoc, remove_selected_columns = T) # transform qualitative var in a set of dummy variables
+descriptive <- cbind(Carseats_train[,c("Sales", "Price","CompPrice","Age")], add_col, leaf)
+
+p1 <- descriptive %>% group_by(leaf) %>%  summarise_all( ~ mean(.x, na.rm = TRUE))
+p1
+
+```
+
+
+
+```{r}
+source('/Users/ldhuyjoseph/Documents/R/func/regression tree.R')
+#subset_belief
+```
+
+```{r}
+reg_tree(subset_belief,'y_belief_report_num','class',c('x_age','x_education_fac'))
+```
+
+
