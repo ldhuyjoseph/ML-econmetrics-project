@@ -1,0 +1,823 @@
+---
+title: "ML project: Fake News - Duc Huy Lam, Adiya ,Karina "
+output: html_notebook
+---
+
+## TO DO settle the conflict
+```{r}
+# Helper packages
+library(tidyverse) #  for data processing
+library(stargazer) #  for producing nice regression tables
+library(foreign) #  for importing data in Stata format
+library(stringr) #  for managing text data
+library(readr) # for reading data
+library(pacman)
+# Helper packages v2
+library(dplyr)       # for data wrangling
+library(ggplot2)     # for awesome plotting
+library(rsample)     # data splitting 
+library(fastDummies) # for creating dummy variables
+library(fBasics)    # descriptive statistics
+library(tidyr)
+library(reshape2)
+
+# Statistics and modeling packages
+library(fBasics) # package for summary statistics
+library(clubSandwich) # package for robust standard errors
+library(glmnet) # for lasso estimation
+library(hdm) # for rigorous and double lasso estimation
+
+# Modelling packages
+library(rpart)       # package for regression/decision tree estimation
+library(gbm) # package for gradient boosting estimation
+library(h2o)       # package for training ML models
+library(caret)  # another package for training and evaluation ML models
+library(glmnet) # for lasso estimation
+library(hdm) # for rigorous and double lasso estimation
+library(DoubleML)
+library(mlr3) # package for the learners in DML
+library(mlr3learners) # extended functionalities of mlr3
+library(ivreg)
+library(causalTree)
+
+# Model interpretability packages
+library(rpart.plot)  # for plotting decision trees
+library(vip)         # for feature importance
+library(pdp)         # for feature effects
+
+```
+
+load the already processed .RData, where data_short is Elisa's data, data is Bauer's original data
+
+##1.load data
+```{r}
+#please change location to load file 
+load('/Users/ldhuyjoseph/Documents/R/project/harvard reproducw/BauerFullData.RData')
+```
+##2.1.SUBSET DATA
+```{r}
+#subset data with numeric version for variables only
+subset <- datas_short[,c("y_belief_report_num",         #1st
+                         "y_share_report_email_num",    #2nd
+                         "y_share_report_fb_num",       #3rd
+                         "y_share_report_twitter_num",  #4th
+                         "y_share_report_whatsapp_num", #5th
+                         "x_education_num",
+                         "x_sex_num",
+                         'x_age',
+                         'x_income_num',
+                         "d_treatment_source"          #last
+                         )]
+
+#with categorical version, Elisa's guidance for interaction terms
+subset <- datas_short[,c("y_belief_report_num",
+                         "y_share_report_email_num",
+                         "y_share_report_fb_num",
+                         "y_share_report_twitter_num",
+                         "y_share_report_whatsapp_num",
+                         "x_education_fac",
+                         #"x_education_num",
+                         "x_sex_num",
+                         'x_age',
+                         'x_income_num',
+                         "d_treatment_source"
+                         )]
+
+#subset with *_fac only, still working, (note x_sex_num)
+subset <- datas_short[,c("y_belief_report_num",
+                         "y_share_report_email_num",
+                         "y_share_report_fb_num",
+                         "y_share_report_twitter_num",
+                         "y_share_report_whatsapp_num",
+                         "x_education_fac",
+                         "x_sex_num",
+                         'x_age',
+                         'x_income_fac',
+                         "d_treatment_source"
+                         )]
+
+#subset total (excluding some not important vars)
+subset <- datas_short[,c("y_belief_report_num",
+                         "y_share_report_email_num",
+                         "y_share_report_fb_num",
+                         "y_share_report_twitter_num",
+                         "y_share_report_whatsapp_num",
+                         "x_education_num",
+                         "x_education_fac",
+                         "x_sex_num",
+                         'x_sex_fac',
+                         'x_age',
+                         'x_income_num',
+                         'x_income_fac',
+                         "d_treatment_source"
+                         )]
+```
+
+```{r}
+datas_short
+```
+
+##2.2 SUBSET for ys
+```{r}
+#create samples for different tasks with different y_*
+
+#for belief measure
+subset_belief <- 
+  subset[,c(-2,-3,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_belief)
+
+#for email sharing measure
+subset_share_email <- 
+  #subset[,c(-3,-4,-5)] %>%
+  subset[,c(-1,-3,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_email)
+
+#for fb sharing measure
+subset_share_fb <-
+  #subset[,c(-2,-4,-5)] %>%
+  subset[,c(-1,-2,-4,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_fb)
+
+#for twitter sharing measure
+subset_share_twitter <- 
+  #subset[,c(-2,-3,-4)] %>%
+  subset[,c(-1,-2,-3,-5)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_twitter)
+
+#for whatsapp sharing measure
+subset_share_whatsapp <-
+  #subset[,c(-2,-3,-5)] %>%
+  subset[,c(-1,-2,-3,-4)] %>%
+  na.omit() %>%
+  data.frame()
+dim(subset_share_whatsapp)
+```
+
+## Descriptive graphs and summary statistics {#sec:summarystats}
+
+eda & graphing (to do)
+consider to exclude migration attitude, and include other, also add some other summary analysis
+
+```{r fig-A1, echo=FALSE, fig.cap="Distributions: gender, age, income and migration attitude index\\label{fig-A1}", fig.height=6, fig.width=7, message=FALSE, warning=FALSE, out.extra=''}
+# Gender
+
+p1 <- ggplot(datas_short, aes(x_sex_fac)) +
+  geom_bar(fill = "gray") +
+  labs(x = "Gender", y = "Frequency") +
+  theme_light() +
+  scale_x_discrete(labels = c("male", "female"))
+
+# Age
+
+p2 <- ggplot(datas_short, aes(x =x_age)) +
+  geom_histogram(binwidth = 5, fill = "gray") +
+  labs(x = "Age", y = "Frequency") +
+  theme_light()
+
+# Personal income
+
+p3 <- ggplot(datas_short, aes(datas_short$x_income_fac)) +
+  geom_bar(fill = "gray") +
+  labs(x = "Income", y = "Frequency") +
+  theme_light() +
+  theme(
+    axis.text.x = element_text(
+      angle = 35, hjust = 1, vjust = 1,
+      margin = margin(0.2, 0, 0.3, 0, "cm")
+    ),
+    plot.title = element_text(hjust = 0.5),
+    plot.margin = margin(0.5, 0.5, 0, 0.5, "cm")
+  )
+
+# Migration attitudes
+p4 <- ggplot(data, aes(x = migration_attitude_average)) +
+  geom_histogram(binwidth = 1, fill = "gray") +
+  theme_light() +
+  labs(x = "Migration attitude index", y = "Frequency") +
+  geom_vline(aes(xintercept = cutoffs$mean),
+    colour = "red", show.legend = FALSE
+  ) +
+  geom_vline(aes(xintercept = cutoffs$lower),
+    colour = "blue", show.legend = FALSE
+  ) +
+  geom_vline(aes(xintercept = cutoffs$upper),
+    colour = "blue", show.legend = FALSE
+  )
+```
+
+#to fix the plot
+
+```{r fig-A1, echo=FALSE, fig.cap="Distributions: gender, age, income and migration attitude index\\label{fig-A1}", fig.height=6, fig.width=7, message=FALSE, warning=FALSE, out.extra=''}
+#education
+p4 <- ggplot(datas_short, aes(datas_short$x_education_fac)) +
+  geom_bar(fill = "gray") +
+  labs(x = "Education", y = "Frequency") +
+  theme_light() +
+  theme(
+    axis.text.x = element_text(
+      angle = 35, hjust = 1, vjust = 1,
+      margin = margin(0.2, 0, 0.3, 0, "cm")
+    ),
+    plot.title = element_text(hjust = 0.5),
+    plot.margin = margin(0.5, 0.5, 0, 0.5, "cm")
+  )
+p4
+```
+
+
+ ```{r fig-A1, echo=FALSE, fig.cap="Distributions: gender, age, income and migration attitude index\\label{fig-A1}", fig.height=6, fig.width=7, message=FALSE, warning=FALSE, out.extra=''}
+# pdf("output/fig-A1.pdf", width = 7, height = 6)
+# plots_combined <- grid.arrange(p1, p2, p3, p4, ncol = 2)
+# plots_combined
+# dev.off()
+
+
+
+plots_combined <- ggarrange(p1, p2, p3, p4,
+  common.legend = TRUE,
+  legend = "bottom",
+  ncol = 2,
+  nrow = 2
+)
+```
+
+#TO FIX THE COMMENTS
+
+```{r fig-A1, echo=FALSE, fig.cap="Distributions: gender, age, income and migration attitude index\\label{fig-A1}", fig.height=6, fig.width=7, message=FALSE, warning=FALSE, out.extra=''}
+#TO FIX THE COMMENTS
+annotate_figure(plots_combined,
+  bottom = text_grob("Note: Plot 4 displays the distribution of the individual average across the scales measuring attitudes towards\nimmigration. Based on these attitudes, we constructed two treatment variables in combination with the content\ntreatment (pro- and anti-migration).",
+    color = "black",
+    hjust = 0, x = 0, size = 10
+  )
+)
+```
+
+##TO FIX THE SUMMARY TABLE
+by add more or remove cols
+```{r fig-A1, echo=FALSE, fig.cap="Distributions: gender, age, income and migration attitude index\\label{fig-A1}", fig.height=6, fig.width=7, message=FALSE, warning=FALSE, out.extra=''}
+```
+```{r tab-A2-tab-A3, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE, results="asis"}
+
+summary.stats <- datas_short %>%
+  dplyr::select(
+    x_age,
+    x_sex_num,
+    contains("_num")
+  ) %>%
+  select(
+    contains("know_"),
+    contains("read_"),
+    contains("trust_")
+  ) %>%
+  as.data.frame() %>%
+  rename_(.dots = setNames(names(.), gsub("\\_num", "", names(.)))) %>%
+  rename_(.dots = setNames(names(.), gsub("_", " ", names(.))))
+
+names(summary.stats) <- str_to_title(names(summary.stats))
+
+stargazer::stargazer(summary.stats,
+  summary = TRUE,
+  type = "latex",
+  label = "tab:tab-A2",
+  font.size = "scriptsize",
+  table.placement = "H",
+  column.sep.width = "1pt",
+  title = "Summary statistics: Numeric variables",
+  digits = 2,
+  rownames = FALSE,
+  header = FALSE,
+  notes.append = FALSE,
+  notes.align = "l",
+  omit.summary.stat = c("p25", "p75")
+)
+
+summary.stats <- data %>%
+  dplyr::select(
+    age,
+    sex_num,
+    treatment_source,
+    treatment_channel,
+    treatment_content,
+    treatment_congruence50,
+    treatment_congruence_30,
+    contains("_num")
+  ) %>%
+  select(
+    age,
+    sex_num,
+    treatment_source,
+    treatment_channel,
+    treatment_content,
+    treatment_congruence50,
+    treatment_congruence_30,
+    contains("belief_report"),
+    contains("share_report"),
+    matches("immigrant.*num"),
+    matches("migration_attitude"),
+    matches("sharing.*num")
+  ) %>%
+  select(-contains("prompt")) %>%
+  as.data.frame() %>%
+  rename_(.dots = setNames(names(.), gsub("\\_num", "", names(.)))) %>%
+  rename_(.dots = setNames(names(.), gsub("_", " ", names(.))))
+
+names(summary.stats) <- str_to_title(names(summary.stats))
+
+stargazer::stargazer(summary.stats,
+  summary = TRUE,
+  type = "latex",
+  label = "tab:tab-A3",
+  font.size = "scriptsize",
+  table.placement = "H",
+  column.sep.width = "1pt",
+  title = "Summary statistics: Numeric variables",
+  digits = 2,
+  rownames = FALSE,
+  header = FALSE,
+  notes.append = FALSE,
+  notes.align = "l",
+  omit.summary.stat = c("p25", "p75")
+)
+```
+```
+```{r}
+```{r tab-A4, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE, results="asis"}
+
+library(qwraps2)
+options(qwraps2_markup = "markdown")
+
+summary.table <- data %>%
+  dplyr::select(
+    .data$education,
+    .data$income_fac,
+    .data$account_email_fac,
+    .data$account_fb_fac,
+    .data$account_twitter_fac,
+    .data$account_whatsapp_fac
+  ) %>%
+  summary_table(.)
+
+# Modify table
+a <- capture.output(print(summary.table,
+  caption = "Summary statistics: Categorical variables", markup = "latex",
+  rtitle = "Variable",
+  cnames = c("Distribution")
+))
+a <- gsub("education", "Education (German school types)", a)
+a <- gsub("income_fac", "Income", a)
+
+a <- gsub("account_email_fac", "Use Email", a)
+a <- gsub("account_fb_fac", "Use Facebook", a)
+a <- gsub("account_twitter_fac", "Use Twitter", a)
+a <- gsub("account_whatsapp_fac", "Use Whatsapp", a)
+
+a <- gsub("\\\\hline", "", a)
+a <- gsub("Unknown", "Missings", a)
+a[5] <- gsub("\\|", "", a[5])
+a[6] <- "\\hline\\hline"
+a[8] <- "\\hline"
+a[24] <- "\\hline"
+a[50] <- "\\hline"
+a[1] <- gsub("\\[t\\]", "\\[H\\]", a[1])
+
+# Change size
+a <- c(a[1:4], "\\scriptsize", a[5:length(a)])
+
+cat(a)
+```
+```
+
+
+1st lin regressions (to check)
+basically, to replicate H1a,H1b testing using T-test for difference in group means
+```{r}
+```{r}
+```
+
+###4.1 LM SIMPLE
+# Bauer's Ttest (simple reg)
+# Hypotheses H1a, H1b ####
+```{r}
+#T test
+h1_ttest_results <- datas_short %>%
+  select(
+    d_treatment_source,
+    y_belief_report_num,
+    y_share_report_email_num,
+    y_share_report_fb_num,
+    y_share_report_twitter_num,
+    y_share_report_whatsapp_num
+  ) %>%
+  gather(variable, value, y_belief_report_num:y_share_report_whatsapp_num) %>%
+  na.omit(value) %>%
+  group_by(variable) %>%
+  do(tidy(t.test(value ~ d_treatment_source,
+    data = ., na.action = "na.omit",
+    var.equal = TRUE
+  ))) %>%
+  ungroup() %>%
+  mutate(estimate = estimate2 - estimate1) %>% #estimate 2 for source_treatment =1, rnews
+  mutate(estimate = round(estimate, 2)) %>%
+  mutate(p.value = format(round(p.value, 2), nsmall = 2)) %>%
+  mutate(variable = case_when(
+    variable == "y_belief_report_num" ~ "Belief",
+    variable == "y_share_report_email_num" ~ "Email",
+    variable == "y_share_report_fb_num" ~ "Facebook",
+    variable == "y_share_report_twitter_num" ~ "Twitter",
+    variable == "y_share_report_whatsapp_num" ~ "Whatsapp"
+  )) %>%
+  mutate(N = parameter + 2)
+
+h1_ttest_results
+```
+Simple reg with HC1 SE # to do, design table for simple reg with hete SE
+```{r}
+# Linear models
+
+h1a_lm <- lm(y_belief_report_num ~ d_treatment_source, data = datas_short) 
+h1b_email_lm <- lm(y_share_report_email_num ~ d_treatment_source, data = datas_short)
+h1b_fb_lm <- lm(y_share_report_fb_num ~ d_treatment_source, data = datas_short)
+h1b_twitter_lm <- lm(y_share_report_twitter_num ~ d_treatment_source, data = datas_short)
+h1b_whatsapp_lm <- lm(y_share_report_whatsapp_num ~ d_treatment_source, data = datas_short)
+
+# SEs taking heteroskedasticity into account
+h1_results_robust <- rep(list(NULL), 5)
+objects <- c(
+  "h1a_lm",
+  "h1b_email_lm",
+  "h1b_fb_lm",
+  "h1b_whatsapp_lm",
+  "h1b_twitter_lm"
+)
+names(h1_results_robust) <- objects
+
+for (i in objects) {
+  assign("fit.i", get(i))
+  cov_mat.i <- sandwich::vcovHC(fit.i, type = "HC1") #originally, HC1, let's try CR1
+  h1_results_robust[[i]] <- lmtest::coeftest(fit.i, vcov = cov_mat.i)
+}
+
+source_effect_belief <- h1_ttest_results$estimate[h1_ttest_results$variable == "Belief"]
+source_effect_email <- h1_ttest_results$estimate[h1_ttest_results$variable == "Email"]
+source_effect_twitter <- h1_ttest_results$estimate[h1_ttest_results$variable == "Twitter"]
+source_effect_facebook <- h1_ttest_results$estimate[h1_ttest_results$variable == "Facebook"]
+source_effect_whatsapp <- h1_ttest_results$estimate[h1_ttest_results$variable == "Whatsapp"]
+
+h1_results_robust #HC1 robust
+
+```
+showing particular results
+```{r}
+h1_ttest_results
+h1_results_robust #HC1 robust
+```
+Using Elisa's t.test and lm methods , whereas Bauer's is above
+```{r}
+#Elisa's
+# compare belief for rnews respondents vs fnews respondents
+# males insured
+fnews_respondents <- datas_short %>% filter(d_treatment_source==0)
+# males uninsured - please complete it yourself
+rnews_respondents <-datas_short %>% filter(d_treatment_source==1)
+# t-test
+t.test(fnews_respondents$y_belief_report_num, rnews_respondents$y_belief_report_num)
+
+```
+```{r}
+#lm
+h1b_fb_lm_E <- lm(y_share_report_fb_num ~ d_treatment_source, data = datas_short)
+#compare B's and E's, which are the same
+stargazer(h1b_fb_lm_E,h1b_fb_lm,type = 'text')
+```
+comments from Bauer
+
+Hypothesis H1a posits that *people have a higher tendency to believe news reports from a real source than from a fake source*. To test this, we compare belief in Report 1, which has the same content for all subjects, across source treatment groups. Plot A in Figure \@ref(fig-3) visualizes group means and results from t-tests. The real source indeed elicited higher average belief (also see Table \@ref(tab:tab-A11) for OLS estimates). In substantive terms, the difference of `r source_effect_belief` on a 7-point scale is comparable to source effects in studies with similar designs [e.g., @KnightGallup2018]. It is, however, much smaller than individual-level predictors of belief such as familiarity with a story in @Pennycooketal2018. 
+
+We also expected that people *would be more likely to share news reports that come from real sources than those that come from fake sources (H1b)*. Plot B in Figure \@ref(fig-3) illustrates that intention to share is generally low. The plot also does not suggest large source effects on sharing. T-tests for email (mean difference: `r source_effect_email`) and Twitter (mean difference: `r source_effect_twitter`) do not yield statistically significant effects. In the case of Twitter, any real difference would be difficult to detect due to the small number of Twitter users in our sample. In contrast, there are significant differences for Facebook (mean difference: `r source_effect_facebook`) and Whatsapp (mean difference: `r source_effect_whatsapp`). 
+
+Although we did not assume that the treatment effect on sharing must necessarily work through belief, we ran some additional analyses to explore this possibility. Figure A6 in the Appendix shows that belief is positively correlated to all sharing outcomes (about 0.2 for each correlation). If sharing could be fully explained by belief, we would expect a correlation of 1. The much lower correlation suggests that other factors are more important.
+
+##4.2 CORR MAT
+### TO DO to fix this corr matrix 
+change variables name
+```{r fig-A6, echo=FALSE, fig.align="center", fig.cap="Correlation plot: Outcomes for Report 1 and 5\\label{fig-A6}", fig.height=4, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+data_cor <- datas_short %>%
+  select(
+    y_belief_report_1_num,
+    share_report_1_email_num,
+    share_report_1_fb_num,
+    share_report_1_twitter_num,
+    share_report_1_whatsapp_num
+  )
+
+names(data_cor) <- gsub(
+  "Fb", "Facebook",
+  str_to_title(gsub("_", " ", gsub("_num", "", names(data_cor))))
+)
+names(data_cor) <- str_replace_all(names(data_cor), "1 ", "1\n")
+
+correlation_matrix <- round(cor(data_cor, use = "pairwise.complete.obs"), 1)
+
+# Plot
+
+p1 <- ggcorrplot(correlation_matrix,
+  hc.order = TRUE,
+  type = "lower",
+  lab = TRUE,
+  tl.cex = 9,
+  show.diag = TRUE
+)
+
+data_cor <- data %>%
+  select(
+    belief_report_5_num,
+    share_report_5_email_num,
+    share_report_5_fb_num,
+    share_report_5_twitter_num,
+    share_report_5_whatsapp_num
+  )
+names(data_cor) <- gsub(
+  "Fb", "Facebook",
+  str_to_title(gsub("_", " ", gsub("_num", "", names(data_cor))))
+)
+
+names(data_cor) <- str_replace_all(names(data_cor), "5 ", "5\n")
+
+correlation_matrix <- round(cor(data_cor, use = "pairwise.complete.obs"), 1)
+
+# Plot
+
+p2 <- ggcorrplot(correlation_matrix,
+  hc.order = TRUE,
+  type = "lower",
+  lab = TRUE,
+  tl.cex = 9,
+  show.diag = TRUE
+)
+
+graph_combined <- ggarrange(p1, p2,
+  common.legend = TRUE,
+  legend = "bottom",
+  ncol = 2
+)
+graph_combined
+
+```
+to plot corr mat for dependent var to see if belief is a factor corrolates with tendency to share
+
+
+to fix the code and the plot as well, compare with ref A6 fig in appendix
+SAY,    Positive but weak correlations imply that belief is not a strong factor for sharing intentions.
+```{r}
+# Step 2: Load your dataset
+# Assuming your dataset is already loaded in the variable `datas_short`
+# Example: datas_short <- read.csv("path_to_your_file.csv")
+
+# Step 3: Select the specific variables
+selected_data <- datas_short[, c('y_belief_report_num', 'y_share_report_email_num', 'y_share_report_fb_num', 'y_share_report_whatsapp_num', 'y_share_report_twitter_num')]
+
+# Step 4: Compute the correlation matrix
+cor_matrix <- cor(selected_data, use = "complete.obs")
+
+# Step 5: Melt the correlation matrix
+melted_cor_matrix <- melt(cor_matrix)
+
+# Step 6: Plot the correlation matrix
+ggplot(data = melted_cor_matrix, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name="Correlation") +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1),
+        axis.text.y = element_text(size = 12)) +
+  coord_fixed() +
+  ggtitle("Correlation Matrix Heatmap with Values") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+printing the 1st lin regs replicating Bauer's
+
+
+```{r fig-3, echo=FALSE, fig.cap="Source effect on news belief and sharing\\label{fig-3}", fig.height=4, fig.width=10, message=FALSE, warning=FALSE, out.extra=''}
+
+# Annotations for graphs
+
+annotations <- paste(h1_ttest_results$variable,
+  ": Coef = ", h1_ttest_results$estimate,
+  "; p = ", h1_ttest_results$p.value,
+  ", N = ", h1_ttest_results$N,
+  sep = ""
+)
+annotations[1] <- gsub("Belief: ", "", annotations[1])
+
+# Summary of treatment means and SEs (belief)
+
+results_df_belief2 <- datas_short %>%
+  rename(treatment_plot = d_treatment_source) %>%
+  group_by(treatment_plot) %>%
+  dplyr::select(y_belief_report_num) %>%
+  group_by(N = n(), add = TRUE) %>%
+  summarize_all(funs(mean, var, sd, na_sum = sum(is.na(.))), na.rm = TRUE) %>%
+  mutate(n = N - na_sum) %>%
+  mutate(
+    se = sqrt(var / n),
+    ci.error = qt(0.975, df = n - 1) * sd / sqrt(n),
+    conf.low = mean - ci.error,
+    conf.high = mean + ci.error
+  ) %>%
+  mutate(Group = ifelse(treatment_plot == 1, "Tagesschau", "Nachrichten 360")) %>%
+  mutate(outcome = "trust") %>%
+  mutate(outcome = str_to_title(outcome))
+
+# Summary of treatment means and SEs (sharing)
+
+results_df_share2 <- datas_short %>%
+  rename(treatment_plot = d_treatment_source) %>%
+  group_by(treatment_plot) %>%
+  dplyr::select(
+    y_share_report_email_num,
+    y_share_report_fb_num,
+    y_share_report_twitter_num,
+    y_share_report_whatsapp_num
+  ) %>%
+  group_by(N = n(), add = TRUE) %>%
+  gather(
+    key = "variable", value = "value",
+    y_share_report_email_num:y_share_report_whatsapp_num
+  ) %>%
+  group_by(treatment_plot, variable) %>%
+  summarize(
+    N = mean(N),
+    mean = mean(value, na.rm = TRUE),
+    var = var(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    na_sum = sum(is.na(value))
+  ) %>%
+  mutate(n = N - na_sum) %>%
+  mutate(
+    se = sqrt(var / n),
+    ci.error = qt(0.975, df = n - 1) * sd / sqrt(n),
+    conf.low = mean - ci.error,
+    conf.high = mean + ci.error
+  ) %>%
+  mutate(Group = ifelse(treatment_plot == 1, "Tagesschau", "Nachrichten 360")) %>%
+  mutate(variable = case_when(
+    variable == "y_share_report_email_num" ~ "Email",
+    variable == "y_share_report_fb_num" ~ "Facebook",
+    variable == "y_share_report_twitter_num" ~ "Twitter",
+    variable == "y_share_report_whatsapp_num" ~ "Whatsapp"
+  ))
+
+# Plot for treatment effects on belief
+
+p1 <- ggplot(results_df_belief2, aes(
+  x = outcome, y = mean,
+  group = as.factor(treatment_plot),
+  color = as.factor(treatment_plot)
+)) +
+  geom_point(position = position_dodge(0.4), size = 1.1) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+    width = .3,
+    position = position_dodge(0.4), size = 0.7
+  ) +
+  labs(title = "(A) Outcome: Belief ", x = "", y = "Belief Report 1 (0-6)") +
+  scale_color_manual(
+    values = c("red", "blue"),
+    labels = c("Nachrichten 360 (fake)", "Tagesschau (real)"),
+    name = "Source treatment:"
+  ) +
+  theme_light() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.y = element_text(size = 12),
+    axis.ticks = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    plot.title = element_text(size = 13, hjust = 0.5),
+    plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm")
+  ) +
+  ylim(0, 6) +
+  ggplot2::annotate(
+    geom = "text", x = 0.5, y = 5.7,
+    label = str_replace(annotations[1], "NA: ", ""),
+    color = "#575757", size = 4, hjust = 0, vjust = 1
+  )
+
+# Annotations for sharing
+
+annotations_sharing <- annotations[-1]
+annotations_sharing <- paste(annotations_sharing, collapse = "\n")
+
+# Plot of treatment effects on sharing
+
+p2 <- ggplot(
+  results_df_share2,
+  aes(
+    x = variable, y = mean,
+    group = as.factor(treatment_plot),
+    color = as.factor(treatment_plot)
+  )
+) +
+  geom_point(position = position_dodge(0.5), size = 1.1) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+    width = .4,
+    position = position_dodge(0.5), size = 0.7
+  ) +
+  labs(title = "(B) Outcome: Sharing intention", x = "", y = "Share Report 1 (0/1)") +
+  scale_color_manual(
+    values = c("red", "blue"),
+    labels = c("Nachrichten 360 (fake)", "Tagesschau (real)"),
+    name = "Source treatment:"
+  ) +
+  theme_light() +
+  theme(
+    axis.text.x = element_text(
+      size = 12, vjust = 1,
+      margin = margin(0.2, 0, 0, 0, "cm")
+    ),
+    axis.title.y = element_text(size = 13),
+    axis.ticks = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 13),
+    plot.title = element_text(size = 14, hjust = 0.5),
+    plot.margin = margin(0.5, 0.5, 0, 0.5, "cm")
+  ) +
+  ylim(0, 1) +
+  ggplot2::annotate(
+    geom = "text", x = 1.5, y = 0.95, label = annotations_sharing,
+    color = "#575757", size = 4, hjust = 0, vjust = 1
+  )
+
+# Combine and save plots
+
+graph_combined <- ggarrange(p1, p2,
+  common.legend = TRUE,
+  legend = "bottom", ncol = 2, nrow = 1,
+  font.label = list(size = 20),
+  widths = c(1, 2)
+)
+
+
+
+annotate_figure(graph_combined,
+    bottom = text_grob("Note: Plots show point estimates and 95% confidence intervals for average belief, and sharing intentions, per source treatment group.\nCoefficients and p-values from t-tests are listed in the top part of the plots.", color = "black",
+                                  hjust = 0, x = 0, size = 11)
+)
+```
+##TO DO CARRY OUT OTHER LM 
+##4.3 LM FULL 
+## refer to us_2
+## LASSO
+
+```{r}
+
+```
+
+## TO DO output the result as pdf file
+
+## TO DO CARRY OUT ALL POSSIBLE ML
+
+1ST.REG TREE keep qualitative var, corr suspicion->add, causality doesnt work like that (simultaneality), Lasso
+```{r}
+##reg tree is prediction if implemented, to compare with full lm (could be with Lasso) if so vs gbm, could vs h2o grid search
+
+
+```
+2nd. causal tree, causal forest
+```{r}
+
+```
+3rd metalearners
+
+## 2ND STAGE, TREATMENT HETER
+## Treatment heterogeneity {#sec:resultsheterogeneity}
+
+We now turn to the question of treatment heterogeneity for the two treatment dimensions, i.e., source and congruence. We estimate heterogeneity using the causal forest method [cf. @Wager2018-tk]. An elaborate description of this approach can be found in Appendix \@ref(sec:thoverview). Results for the belief outcome are described in this section; results for sharing outcomes can be found in Appendix \@ref(sec:resultsheterogeneitysharing). 
+
+Following @AtheyWager2019, we generally start by growing a pilot causal forest based on all covariates described in our methods section. The variables included are gender, age, state of residence (coded as dummy for Eastern Germany), mainstream media knowledge, mainstream media trust, political knowledge, overconfidence, use of email/Facebook/Twitter/Whatsapp (coded as dummies), sharing frequency, education, turnout at last election, vote choice at last election (coded as party dummies), income, and basic programming knowledge. We then regrow the causal forest including only the variables with above-average importance in the pilot forest [cf. @AtheyWager2019].^[Importance is calculated as a simple weighted sum of how many times a variable was split on at each depth in the forest. Importance statistics for all variables can be found in Appendix \@ref(sec:treatmentheterogeneity).] For this final forest, we predict individual-level treatment effects, i.e., the difference between being exposed to one treatment compared to the other, with out-of-bag prediction.
+
+```{r}
+```
+
+# TO DO robustness check section
+## Robustness checks {#sec:robustnesschecks}
+
+```{r}
+```
+
